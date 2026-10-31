@@ -7,7 +7,7 @@
 import { UUID_CONTROL, UUID_DATA, UUID_SERVICE } from '../protocol/constants';
 import type { Unsubscribe } from '../transport/link';
 import type { Advertisement, Radio, RadioState } from '../transport/radio';
-import { sleep } from '../util/async';
+import { sleep, tick } from '../util/async';
 import type { FakeTag } from './fakeTag';
 
 export interface FakeRadioOptions {
@@ -129,7 +129,7 @@ export class FakeRadio implements Radio {
 
   async connect(id: string, { mtu }: { mtu: number; timeoutMs: number }) {
     this.connectAttempts++;
-    await sleep(0);
+    await tick();
     const device = this.devices.get(id);
     if (!device) throw new Error('Device not found');
     if (this.failConnects > 0) {
@@ -193,7 +193,7 @@ export class FakeRadio implements Radio {
     this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
     try {
       if (this.opts.writeDelayMs) await sleep(this.opts.writeDelayMs);
-      else await sleep(0);
+      else await tick();
       if (this.sessions.get(id) !== s) throw new Error('Device disconnected');
       if (characteristic === UUID_CONTROL) {
         if (!withResponse) throw new Error('Control needs write with response');

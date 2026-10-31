@@ -6,6 +6,8 @@ module.exports = {
       displayName: 'core',
       preset: 'jest-expo',
       testEnvironment: 'node',
+      // Slower laptops (and Windows timers) need more than Jest's 5 s default.
+      testTimeout: 30_000,
       testMatch: ['<rootDir>/test/**/*.test.ts'],
     },
   ],

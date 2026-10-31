@@ -2,7 +2,7 @@
 // like the firmware's main loop.
 
 import type { Link, Unsubscribe } from '../transport/link';
-import { sleep } from '../util/async';
+import { sleep, tick } from '../util/async';
 import type { FakeTag } from './fakeTag';
 
 export interface SimLinkOptions {
@@ -68,7 +68,7 @@ export class SimLink implements Link {
     }
     this.dataBytes += data.length;
     if (bytesPerSecond > 0) await sleep((data.length / bytesPerSecond) * 1000);
-    else if (withResponse) await sleep(0);
+    else if (withResponse) await tick();
     this.tag.data(data);
   }
 
