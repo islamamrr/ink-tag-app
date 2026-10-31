@@ -1,0 +1,64 @@
+menu "Ink Tag"
+
+    config INKTAG_DEVICE_NAME_PREFIX
+        string "BLE name prefix"
+        default "InkTag"
+        help
+            Advertised name is "<prefix>-XXXX", XXXX being the last two bytes of the BT MAC.
+
+    menu "Panel wiring"
+
+        config INKTAG_PIN_SCK
+            int "SCL (SPI clock) GPIO"
+            default 4 if IDF_TARGET_ESP32C3
+            default 18
+
+        config INKTAG_PIN_SDA
+            int "SDA (SPI data, bidirectional) GPIO"
+            default 6 if IDF_TARGET_ESP32C3
+            default 23
+
+        config INKTAG_PIN_CS
+            int "CSB GPIO"
+            default 7 if IDF_TARGET_ESP32C3
+            default 5
+
+        config INKTAG_PIN_DC
+            int "D/C GPIO"
+            default 5 if IDF_TARGET_ESP32C3
+            default 17
+
+        config INKTAG_PIN_RST
+            int "RSTN GPIO"
+            default 10 if IDF_TARGET_ESP32C3
+            default 16
+
+        config INKTAG_PIN_BUSY
+            int "BUSYN GPIO"
+            default 3 if IDF_TARGET_ESP32C3
+            default 4
+
+        config INKTAG_SPI_CLOCK_HZ
+            int "SPI write clock (Hz)"
+            default 8000000
+            range 1000000 10000000
+            help
+                Datasheet p.11: write clock cycle at least 100 ns, so 10 MHz at most.
+                Reads always run at 1 MHz.
+
+    endmenu
+
+    config INKTAG_TEMP_OVERRIDE
+        bool "Use a fixed temperature instead of reading the panel"
+        default n
+        help
+            Bring-up aid. Skips the panel temperature read and picks the
+            waveform for the temperature below.
+
+    config INKTAG_TEMP_OVERRIDE_C
+        int "Fixed temperature (C)"
+        depends on INKTAG_TEMP_OVERRIDE
+        default 22
+        range -20 60
+
+endmenu

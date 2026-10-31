@@ -1,0 +1,2 @@
+# SuperMini boards have no USB-UART chip: send logs over the built-in USB port
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

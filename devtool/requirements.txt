@@ -1,0 +1,4 @@
+PySide6-Essentials>=6.6
+pillow>=10
+bleak>=0.22
+pyserial>=3.5
