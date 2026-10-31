@@ -19,7 +19,12 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ]
     },
     "plugins": [
       [
@@ -39,6 +44,12 @@
           "bluetoothAlwaysPermission": "Ink Tag uses Bluetooth to send pictures to your badge."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bdc8bc26-dc9c-4fc3-96ef-849a40aa4ec7"
+      }
+    },
+    "owner": "iamrdev33"
   }
 }
