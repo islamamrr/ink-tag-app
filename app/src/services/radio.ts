@@ -148,3 +148,14 @@ export async function ensureBluetoothPermissions(): Promise<void> {
   const refused = needed.filter((p) => result[p] !== PermissionsAndroid.RESULTS.GRANTED);
   if (refused.length) throw new BluetoothError('permission', refused.join(', '));
 }
+
+/**
+ * Calls listener with the Bluetooth state now and whenever it changes
+ * (off, on, not allowed...). Does nothing in Expo Go. Returns unsubscribe.
+ */
+export function watchBluetooth(listener: (s: RadioState) => void): () => void {
+  if (!bluetoothAvailable()) return () => {};
+  const r = getRadio();
+  r.state().then(listener, () => {});
+  return r.onStateChange(listener);
+}

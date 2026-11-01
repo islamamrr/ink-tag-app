@@ -14,7 +14,7 @@ is planned separately.
 ```bash
 cd app
 npm install
-npm run check        # lint + typecheck + 56 tests, no phone needed
+npm run check        # lint + typecheck + 57 tests, no phone needed
 npx expo start       # developer screen; see "On a phone" below
 ```
 
@@ -55,16 +55,37 @@ USB debugging mode, `npx expo run:android` builds, installs and starts it.
 `npx eas-cli@latest build --profile development --platform ios`.
 Or `npx expo run:ios --device` on a Mac with Xcode.
 
-**Using it with a badge:** turn the badge on, tap **Scan for badges**, allow
-"Nearby devices" (Android 12+; location on Android 11 and older), tap the
-badge in the list. The status line shows the firmware and the MTU. Then
-pick a photo and **Send**. The log shows the transfer speed, chunk size and
-retries.
+**Using it with a badge:** turn the badge on, tap **Scan**, allow "Nearby
+devices" (Android 12+; location on Android 11 and older), tap the badge in
+the list. The app remembers it: next time **Connect InkTag-XXXX** finds it
+with a short scan, and with "Connect to the last badge when the app opens"
+ticked it does that by itself at launch. Then **Pick & send**.
 
-The developer screen also connects to the **simulator badge**, picks a photo,
-shows the dithered preview next to what the simulated panel draws, and runs
-send, cancel, show, clear and info, with buttons to inject faults (CRC failure,
-dead panel, dropped link). Timings for each pipeline step go to the log.
+What the test screen shows:
+
+- **Badge card:** firmware, MTU and chunk size, whether a picture is stored,
+  panel temperature, and whether the panel answered at boot (firmware 0.3+;
+  red when it didn't, which means check the ribbon and booster).
+- **Problem banner** at the top for any failure: the plain sentence, what to
+  try, and the raw error. A panel timeout (no panel or booster wired,
+  firmware 0.3.1+) shows here, and the picture stays stored on the badge.
+- **Progress card** for every send, show and clear: each stage (erase
+  storage, send, check CRC, refresh panel) with its time, the send's
+  percentage, speed and time left, retries, and the result line.
+- **Recent results:** one line per send, show or clear, pass or fail.
+- **Log:** "Summary" shows the app's own lines; "All" adds every command,
+  notification and simulator line. **Share** sends the whole log (for
+  example to yourself or into a chat) with timestamps. It also goes to the
+  dev server's terminal.
+
+Fit, dither, the simulator speed and the log mode are remembered between
+launches (a small file in the app's documents folder, through
+expo-file-system, which every Expo build already has, so no new development
+build is needed).
+
+The test screen also connects to the **simulator badge**, shows the dithered
+preview next to what the simulated panel draws, and has buttons to inject
+faults (CRC failure, panel timeout, dropped link).
 
 ## Layout
 
@@ -80,8 +101,9 @@ src/core/            plain TypeScript, no React Native imports (ESLint enforces 
   util/base64.ts     base64 for the Bluetooth bridge (Hermes has no Buffer)
   imaging/           palette, fit, tone, dither, frame pack/rotate/preview, pipeline
 src/services/        phone side: photo decode (Skia), badge connections,
-                     radio.ts (react-native-ble-plx + Android permissions)
-src/screens/         DebugScreen, the developer screen
+                     radio.ts (react-native-ble-plx + Android permissions),
+                     prefs.ts (remembered badge and settings)
+src/screens/         DebugScreen, the test screen (devUi.tsx: its plain building blocks)
 test/                Jest tests; test/golden holds files made by the Python tool
 tools/make_golden.py regenerates test/golden from firmware/tools/inktag.py
 ```
