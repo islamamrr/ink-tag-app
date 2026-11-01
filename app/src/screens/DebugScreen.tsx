@@ -49,6 +49,8 @@ export default function DebugScreen() {
   const scanAbortRef = useRef<AbortController | null>(null);
 
   const add = useCallback((line: string) => {
+    // Also to the console, so the dev server's terminal shows the badge log.
+    console.log(`[inktag] ${line}`);
     setLog((l) => [line, ...l].slice(0, MAX_LOG));
   }, []);
 
