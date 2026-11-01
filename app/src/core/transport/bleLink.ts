@@ -166,22 +166,21 @@ export class BleLink implements Link {
   }
 
   async writeControl(data: Uint8Array) {
-    await this.drain();
-    this.check();
+    await this.settle();
     await this.radio.write(this.id, UUID_SERVICE, UUID_CONTROL, data.slice(), true);
   }
 
   async writeData(data: Uint8Array, withResponse: boolean) {
     if (withResponse) {
-      await this.drain();
-      this.check();
+      await this.settle();
       await this.radio.write(this.id, UUID_SERVICE, UUID_DATA, data.slice(), true);
       return;
     }
+    if (this.writeError) await this.settle();
     this.check();
     while (this.inflight.size >= this.opts.maxInFlight) {
       await Promise.race(this.inflight);
-      this.check();
+      if (this.writeError) await this.settle();
     }
     const p: Promise<void> = this.radio
       .write(this.id, UUID_SERVICE, UUID_DATA, data.slice(), false)
@@ -192,8 +191,12 @@ export class BleLink implements Link {
     this.inflight.add(p);
   }
 
-  /** Waits for writes in flight, then reports the first one that failed. */
-  private async drain() {
+  /**
+   * Waits until no write is in flight, then reports the first one that
+   * failed. The error is cleared as it is thrown, so a failed upload can't
+   * leave a stale error behind for the next command.
+   */
+  private async settle() {
     while (this.inflight.size) await Promise.all(this.inflight);
     this.check();
   }

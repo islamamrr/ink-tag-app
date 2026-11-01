@@ -1,5 +1,6 @@
 import {
   BleLink,
+  Color,
   BluetoothError,
   DisconnectedError,
   FakeRadio,
@@ -105,7 +106,7 @@ describe('BleLink', () => {
     expect((await client.hello()).firmware).toBe('0.3.0');
     const frame = testFrame();
     const r = await client.upload(frame);
-    expect(r.chunkSize).toBe(514);
+    expect(r.chunkSize).toBe(512); // MTU 517 allows 514, but a GATT value is at most 512
     expect(tag.stored).toEqual(frame);
     expect((await r.displayed).status).toBe('displayed');
     expect(tag.shown).toEqual(frame);
@@ -113,6 +114,33 @@ describe('BleLink', () => {
     // END (the last control write) never overtakes the data.
     const lastData = radio.trace.lastIndexOf('d');
     expect(radio.trace.slice(lastData + 1)).toEqual(['C']); // END
+  });
+
+  test('Android refusing fast writes: retried with responses, no stale error after', async () => {
+    const { client, radio, tag } = await connected();
+    radio.refuseWrites = 3; // the first chunks in flight are all refused
+    const r = await client.upload(testFrame());
+    expect(r.attempts).toBe(2);
+    expect(tag.stored).toEqual(testFrame());
+    expect((await r.displayed).status).toBe('displayed');
+    // The next commands aren't hit by an error left over from the refused writes.
+    await client.show();
+    expect((await client.info()).hasImage).toBe(true);
+  });
+
+  test('a refused upload that also fails in safe mode leaves the link usable', async () => {
+    const { client, radio, tag } = await connected();
+    radio.refuseAllData = true;
+    const err = await client.upload(testFrame()).catch((e) => e);
+    expect(err).toBeInstanceOf(UploadError);
+    expect(err.badgeBlank).toBe(true);
+    // The app sent ABORT, so the badge isn't stuck waiting for data...
+    expect(tag.receiving).toBe(false);
+    radio.refuseAllData = false;
+    // ...and SHOW/CLEAR work again (no "bad state"), with no stale error either.
+    await client.clear(Color.red);
+    await client.upload(testFrame());
+    expect(tag.stored).toEqual(testFrame());
   });
 
   test('uses the MTU the phone settles on (iOS picks its own)', async () => {

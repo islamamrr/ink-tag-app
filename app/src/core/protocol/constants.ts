@@ -15,6 +15,14 @@ export const PANEL_WIDTH = 792;
 export const PANEL_HEIGHT = 528;
 export const FRAME_BYTES = (PANEL_WIDTH * PANEL_HEIGHT) / 2; // 209,088
 
+/**
+ * Largest value one GATT write may carry (Bluetooth Core spec, Vol 3 Part F
+ * 3.2.9). Android refuses longer writes outright, and NimBLE on the badge
+ * would reject them too, so chunks are capped here even when MTU − 3 is
+ * larger (MTU 517 would allow 514).
+ */
+export const MAX_ATTR_LEN = 512;
+
 export const FMT_NATIVE_4BPP = 0x01;
 
 export const Cmd = {

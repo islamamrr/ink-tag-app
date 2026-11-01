@@ -18,7 +18,14 @@ import {
   parseInfo,
   type TagInfo,
 } from './codec';
-import { ErrorCode, Evt, EVENT_NAMES, FMT_NATIVE_4BPP, PROTOCOL_VERSION } from './constants';
+import {
+  ErrorCode,
+  Evt,
+  EVENT_NAMES,
+  FMT_NATIVE_4BPP,
+  MAX_ATTR_LEN,
+  PROTOCOL_VERSION,
+} from './constants';
 import { crc32 } from './crc32';
 import {
   CancelledError,
@@ -253,9 +260,19 @@ export class TagClient {
           // A chunk written without response can be lost on the way: the badge
           // then reports a short upload (bad length) or, if bytes got mangled,
           // a CRC mismatch. Either way, retry once with a response on every write.
-          const lost = e instanceof TagError && (e.code === ErrorCode.CRC || e.code === ErrorCode.BAD_LENGTH);
-          if (lost && !safe && opts.signal?.aborted !== true) {
-            this.log('error', `${e.message}, retrying with a response on every write`);
+          const lost =
+            e instanceof TagError && (e.code === ErrorCode.CRC || e.code === ErrorCode.BAD_LENGTH);
+          // The phone's Bluetooth stack can also refuse a fast write outright
+          // (Android: "Operation was rejected") while the link stays up.
+          const refused =
+            !(e instanceof TagError) &&
+            !(e instanceof CancelledError) &&
+            !(e instanceof DisconnectedError) &&
+            !(e instanceof TimeoutError) &&
+            this.connected;
+          if ((lost || refused) && !safe && opts.signal?.aborted !== true) {
+            const why = e instanceof Error ? e.message : String(e);
+            this.log('error', `${why}, retrying with a response on every write`);
             safe = true;
             continue;
           }
@@ -265,8 +282,11 @@ export class TagClient {
       const displayed = this.waitDisplayed().finally(release);
       return { ...stats, attempts, displayed };
     } catch (e) {
-      release();
       const err = e instanceof Error ? e : new Error(String(e));
+      // A failed upload leaves the badge waiting for data, and it refuses
+      // SHOW and CLEAR until it gets ABORT (or reboots). Tell it, if we still can.
+      if (began && this.connected && !(e instanceof TagError)) await this.abort().catch(() => {});
+      release();
       this.log('error', `upload failed: ${err.message}`);
       throw new UploadError(err, began);
     }
@@ -282,8 +302,11 @@ export class TagClient {
     await this.beginWithRetry(frame.length, signal);
     onBegan();
 
-    const chunk = Math.max(20, this.link.mtu - 3);
-    this.log('info', `sending ${frame.length} bytes in ${chunk}-byte chunks (MTU ${this.link.mtu})`);
+    const chunk = Math.max(20, Math.min(MAX_ATTR_LEN, this.link.mtu - 3));
+    this.log(
+      'info',
+      `sending ${frame.length} bytes in ${chunk}-byte chunks (MTU ${this.link.mtu})`,
+    );
     const t0 = Date.now();
     for (let i = 0, off = 0; off < frame.length; i++, off += chunk) {
       if (signal?.aborted) {

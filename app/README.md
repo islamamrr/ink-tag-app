@@ -14,7 +14,7 @@ is planned separately.
 ```bash
 cd app
 npm install
-npm run check        # lint + typecheck + 54 tests, no phone needed
+npm run check        # lint + typecheck + 56 tests, no phone needed
 npx expo start       # developer screen; see "On a phone" below
 ```
 
@@ -136,6 +136,14 @@ into git.
   and every 32nd chunk asks for a response, so the phone's queue stays full
   without running far ahead. Control writes wait for the data in flight, so
   END can never overtake the last chunk.
+- **Chunk size** is MTU − 3 but never more than 512 bytes, the largest value
+  a GATT write may carry. Android refuses longer writes ("Operation was
+  rejected"); the first real-badge test hit exactly that at MTU 517.
+- **Refused writes**: if the phone's stack refuses writes while the link
+  stays up, the upload is retried once with a response on every write. A
+  failed upload sends ABORT, so the badge doesn't stay stuck waiting for data
+  (it answers SHOW/CLEAR with "bad state" until then), and no write error is
+  left behind for the next command.
 - **Lost chunks**: a write without response can vanish on air. The badge
   then answers END with "bad length" (or "CRC mismatch" if bytes were
   damaged); either way the upload is retried once with a response on every

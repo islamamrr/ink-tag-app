@@ -52,6 +52,10 @@ export class FakeRadio implements Radio {
   failConnects = 0;
   /** Drop the connection after this many data bytes. */
   dropAfterBytes: number | null = null;
+  /** Refuse this many writes without response, like Android's "Operation was rejected". */
+  refuseWrites = 0;
+  /** Refuse every data write, with or without response. */
+  refuseAllData = false;
   /** Lose this write-without-response chunk (counted from 0 over the session). */
   loseChunk: number | null = null;
   connectAttempts = 0;
@@ -189,6 +193,17 @@ export class FakeRadio implements Radio {
   ) {
     const s = this.session(id);
     if (service !== UUID_SERVICE) throw new Error('Service not found');
+    // Android refuses values over 512 bytes (the GATT attribute limit).
+    if (data.length > 512) throw new Error('Operation was rejected');
+    if (characteristic === UUID_DATA && this.refuseAllData) {
+      await tick();
+      throw new Error('Operation was rejected');
+    }
+    if (!withResponse && this.refuseWrites > 0) {
+      this.refuseWrites--;
+      await tick();
+      throw new Error('Operation was rejected');
+    }
     this.inFlight++;
     this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
     try {
