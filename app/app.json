@@ -43,7 +43,8 @@
           "neverForLocation": true,
           "bluetoothAlwaysPermission": "Ink Tag uses Bluetooth to send pictures to your badge."
         }
-      ]
+      ],
+      "./plugins/withGradleTuning"
     ],
     "extra": {
       "eas": {
