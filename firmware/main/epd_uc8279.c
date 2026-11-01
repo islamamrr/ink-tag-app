@@ -24,6 +24,15 @@ static const char *TAG = "epd";
 // Longest wait for BUSYN to go low after a command that starts work. FreeInk
 // and ESPHome wait 10-50 ms for this on the UC8279.
 #define BUSY_START_MS 50
+// A refresh must pull BUSYN low within this long, and keep it low for at
+// least REFRESH_MIN_MS. A six-color pass takes seconds, so a refresh that
+// never goes busy, or finishes almost at once, means no panel is driving
+// BUSYN (panel unplugged, booster missing, BUSY not wired): the pin's pull-up
+// reads "idle" and nothing was drawn. Reported as ESP_ERR_TIMEOUT.
+#define REFRESH_START_MS 500
+#define REFRESH_MIN_MS 1000
+// BUSYN after a reset only stays low for milliseconds.
+#define RESET_BUSY_TIMEOUT_MS 5000
 
 // Datasheet p.11: read cycle >= 350 ns, so reads run far slower than writes.
 #define READ_CLOCK_HZ 1000000
@@ -108,11 +117,11 @@ static esp_err_t read_byte(uint8_t *out)
 }
 
 // BUSYN is low while the controller is working.
-static esp_err_t wait_busy(void)
+static esp_err_t wait_busy_ms(int timeout_ms)
 {
     int waited = 0;
     while (gpio_get_level(PIN_BUSY) == 0) {
-        if (waited >= BUSY_TIMEOUT_MS) {
+        if (waited >= timeout_ms) {
             ESP_LOGE(TAG, "panel busy timeout");
             return ESP_ERR_TIMEOUT;
         }
@@ -120,6 +129,11 @@ static esp_err_t wait_busy(void)
         waited += 10;
     }
     return ESP_OK;
+}
+
+static esp_err_t wait_busy(void)
+{
+    return wait_busy_ms(BUSY_TIMEOUT_MS);
 }
 
 // For commands that start work (refresh, temperature sensing): BUSYN can take
@@ -145,7 +159,7 @@ static esp_err_t panel_reset(void)
     vTaskDelay(pdMS_TO_TICKS(100));
     gpio_set_level(PIN_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
-    return wait_busy();
+    return wait_busy_ms(RESET_BUSY_TIMEOUT_MS);
 }
 
 static esp_err_t panel_init_regs(void)
@@ -237,7 +251,24 @@ static esp_err_t send_pass(const uint8_t map[16], epd_reader_t reader, void *ctx
 static esp_err_t refresh(void)
 {
     ESP_RETURN_ON_ERROR(CMD(0x17, 0xA5), TAG, "refresh");
-    return wait_busy_started();
+    TickType_t start = xTaskGetTickCount();
+    while (gpio_get_level(PIN_BUSY) == 1) {
+        if (pdTICKS_TO_MS(xTaskGetTickCount() - start) >= REFRESH_START_MS) {
+            ESP_LOGE(TAG, "refresh never started (BUSY stayed high): no panel, "
+                          "booster or BUSY wire?");
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(1);
+    }
+    ESP_RETURN_ON_ERROR(wait_busy(), TAG, "refresh busy");
+    uint32_t ms = pdTICKS_TO_MS(xTaskGetTickCount() - start);
+    ESP_LOGI(TAG, "refresh took %lu ms", (unsigned long)ms);
+    if (ms < REFRESH_MIN_MS) {
+        ESP_LOGE(TAG, "refresh finished in %lu ms, too fast to be real: "
+                      "check the panel and BUSY wire", (unsigned long)ms);
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
 }
 
 static esp_err_t panel_sleep(void)
@@ -323,12 +354,11 @@ esp_err_t epd_init(void)
     return spi_bus_add_device(EPD_HOST, &dev, &s_spi_read);
 }
 
-esp_err_t epd_show(epd_reader_t reader, void *ctx)
+static esp_err_t show_passes(epd_reader_t reader, void *ctx)
 {
     int8_t temp;
     uint8_t code1, code2;
 
-    ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
     ESP_RETURN_ON_ERROR(panel_init_regs(), TAG, "init");
     ESP_RETURN_ON_ERROR(panel_read_temperature(&temp), TAG, "temp");
     s_last_temp = temp;
@@ -342,7 +372,18 @@ esp_err_t epd_show(epd_reader_t reader, void *ctx)
     ESP_RETURN_ON_ERROR(force_temperature(code2), TAG, "temp2");
     ESP_RETURN_ON_ERROR(send_pass(PASS2_MAP, reader, ctx), TAG, "pass2");
     ESP_RETURN_ON_ERROR(refresh(), TAG, "refresh2");
+    return ESP_OK;
+}
 
+esp_err_t epd_show(epd_reader_t reader, void *ctx)
+{
+    ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
+    esp_err_t err = show_passes(reader, ctx);
+    if (err != ESP_OK) {
+        // Best effort: don't leave the DC/DC running on a half-done refresh.
+        CMD(0x07, 0xA5);
+        return err;
+    }
     return panel_sleep();
 }
 

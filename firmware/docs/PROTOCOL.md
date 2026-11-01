@@ -47,7 +47,7 @@ Every notification starts with `[event][status]`.
 | `0x84` | INFO | u8 protocol, u8 fw major, u8 minor, u8 patch, u16 width, u16 height, u8 native format, u8 has image, i8 temperature (−128 = unknown), u32 max upload length, then from firmware 0.2: i8 temperature override (−128 = off), then from firmware 0.3: 3 bytes panel id read at boot (all `FF` or all `00` = the panel didn't answer; show a wiring warning) |
 | `0x8F` | ERROR | u8 opcode that failed; status holds the error |
 
-Error codes: 1 bad command, 2 bad length, 3 bad state, 4 overflow, 5 CRC mismatch, 6 flash error, 7 panel timeout, 8 no stored image, 9 bad format.
+Error codes: 1 bad command, 2 bad length, 3 bad state, 4 overflow, 5 CRC mismatch, 6 flash error, 7 panel timeout (the panel stayed busy too long, or, from firmware 0.3.1, never went busy at all, which means no panel is answering; nothing was drawn), 8 no stored image, 9 bad format.
 
 ## Upload sequence
 

@@ -7,7 +7,7 @@
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
 #define INKTAG_FW_VERSION_MINOR 3
-#define INKTAG_FW_VERSION_PATCH 0
+#define INKTAG_FW_VERSION_PATCH 1
 
 // 128-bit UUIDs, written here in the usual string order:
 //   service  b5a10000-6e6b-4a7a-9c3e-1f2a3b4c5d6e
@@ -54,7 +54,7 @@ enum {
     INKTAG_ERR_OVERFLOW = 4,
     INKTAG_ERR_CRC = 5,
     INKTAG_ERR_FLASH = 6,
-    INKTAG_ERR_PANEL_TIMEOUT = 7,
+    INKTAG_ERR_PANEL_TIMEOUT = 7,  // panel stuck busy, or never busy (no panel); nothing drawn
     INKTAG_ERR_NO_IMAGE = 8,
     INKTAG_ERR_BAD_FORMAT = 9,
 };

@@ -108,14 +108,20 @@ static esp_err_t test_pattern_reader(void *ctx, size_t offset, uint8_t *buf, siz
     return ESP_OK;
 }
 
-static void show_stored(uint8_t cmd)
+// ESP_ERR_TIMEOUT is the panel (stuck, or not there). Anything else from a
+// stored-image refresh is most likely the flash read.
+static void report_show(esp_err_t err, uint8_t cmd, uint8_t other_error)
 {
-    esp_err_t err = epd_show(image_store_read, NULL);
     if (err == ESP_OK) {
         notify_displayed();
     } else {
-        notify_error(err == ESP_ERR_TIMEOUT ? INKTAG_ERR_PANEL_TIMEOUT : INKTAG_ERR_FLASH, cmd);
+        notify_error(err == ESP_ERR_TIMEOUT ? INKTAG_ERR_PANEL_TIMEOUT : other_error, cmd);
     }
+}
+
+static void show_stored(uint8_t cmd)
+{
+    report_show(epd_show(image_store_read, NULL), cmd, INKTAG_ERR_FLASH);
 }
 
 static void handle_command(const uint8_t *cmd, size_t len)
@@ -195,12 +201,7 @@ static void handle_command(const uint8_t *cmd, size_t len)
             return;
         }
         uint8_t color = len >= 2 ? cmd[1] : EPD_WHITE;
-        esp_err_t err = epd_clear(color);
-        if (err == ESP_OK) {
-            notify_displayed();
-        } else {
-            notify_error(INKTAG_ERR_PANEL_TIMEOUT, cmd[0]);
-        }
+        report_show(epd_clear(color), cmd[0], INKTAG_ERR_PANEL_TIMEOUT);
         break;
     }
 
@@ -255,7 +256,11 @@ void app_main(void)
     if (!image_store_has_image()) {
         ESP_LOGI(TAG, "no stored image, drawing test pattern");
         esp_err_t err = epd_show(test_pattern_reader, NULL);
-        ESP_LOGI(TAG, "test pattern: %s", esp_err_to_name(err));
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "test pattern drawn");
+        } else {
+            ESP_LOGE(TAG, "test pattern NOT drawn: %s", esp_err_to_name(err));
+        }
     }
 
     for (;;) {
