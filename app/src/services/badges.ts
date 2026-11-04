@@ -47,6 +47,28 @@ export async function scan(
   return toHandles(found);
 }
 
+/**
+ * Looks for one badge by id (a remembered one) and stops as soon as it is
+ * heard. Resolves null if it wasn't heard within timeoutMs: off, out of
+ * range, or connected to another phone.
+ */
+export async function findBadge(id: string, timeoutMs = 8_000): Promise<BadgeHandle | null> {
+  const ctl = new AbortController();
+  let hit = null as BadgeHandle | null;
+  await scan({
+    timeoutMs,
+    signal: ctl.signal,
+    onUpdate: (list) => {
+      const b = list.find((x) => x.id === id);
+      if (b && !hit) {
+        hit = b;
+        ctl.abort();
+      }
+    },
+  });
+  return hit;
+}
+
 export async function connect(
   badge: BadgeHandle,
   log: Log,

@@ -54,8 +54,13 @@ export const DEFAULT_TIMEOUTS: Timeouts = {
   displayed: 150_000,
 };
 
+/** Where an upload is: erasing the badge's storage, streaming, or waiting for the CRC check. */
+export type UploadStage = 'erasing' | 'sending' | 'verifying';
+
 export interface UploadOptions {
   onProgress?: (sent: number, total: number) => void;
+  /** Called as the upload moves between stages; again from 'erasing' on a retry. */
+  onStage?: (stage: UploadStage, attempt: number) => void;
   signal?: AbortSignal;
   /** Ask for a write response every N chunks so the phone's queue can't run far ahead. */
   ackEvery?: number;
@@ -254,7 +259,7 @@ export class TagClient {
       for (;;) {
         attempts++;
         try {
-          stats = await this.uploadOnce(frame, safe, opts, () => (began = true));
+          stats = await this.uploadOnce(frame, safe, opts, attempts, () => (began = true));
           break;
         } catch (e) {
           // A chunk written without response can be lost on the way: the badge
@@ -296,11 +301,14 @@ export class TagClient {
     frame: Uint8Array,
     safe: boolean,
     opts: UploadOptions,
+    attempt: number,
     onBegan: () => void,
   ) {
-    const { signal, onProgress, ackEvery = 32 } = opts;
+    const { signal, onProgress, onStage, ackEvery = 32 } = opts;
+    onStage?.('erasing', attempt);
     await this.beginWithRetry(frame.length, signal);
     onBegan();
+    onStage?.('sending', attempt);
 
     const chunk = Math.max(20, Math.min(MAX_ATTR_LEN, this.link.mtu - 3));
     this.log(
@@ -327,6 +335,7 @@ export class TagClient {
       `sent in ${sendSeconds.toFixed(1)} s (${(bytesPerSecond / 1024).toFixed(1)} KiB/s)`,
     );
 
+    onStage?.('verifying', attempt);
     await this.send(encodeEnd(crc32(frame)));
     await this.expect(Evt.RECEIVED, this.timeouts.received, signal);
     return { sendSeconds, bytesPerSecond, chunkSize: chunk };

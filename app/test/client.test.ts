@@ -165,3 +165,20 @@ test('times out when the badge goes quiet', async () => {
   link.writeControl = async () => {}; // swallow commands
   await expect(client.info()).rejects.toThrow(/no INFO/);
 });
+
+test('upload reports its stages, starting over on a retry', async () => {
+  const { client, tag } = await simBadge();
+  tag.corruptNextUpload = true;
+  const stages: string[] = [];
+  const r = await client.upload(testFrame(), { onStage: (s, n) => stages.push(`${n}:${s}`) });
+  expect(r.attempts).toBe(2);
+  expect(stages).toEqual([
+    '1:erasing',
+    '1:sending',
+    '1:verifying',
+    '2:erasing',
+    '2:sending',
+    '2:verifying',
+  ]);
+  await r.displayed;
+});
