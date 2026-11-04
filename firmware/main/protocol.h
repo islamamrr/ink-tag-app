@@ -6,8 +6,8 @@
 
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
-#define INKTAG_FW_VERSION_MINOR 3
-#define INKTAG_FW_VERSION_PATCH 1
+#define INKTAG_FW_VERSION_MINOR 4
+#define INKTAG_FW_VERSION_PATCH 0
 
 // 128-bit UUIDs, written here in the usual string order:
 //   service  b5a10000-6e6b-4a7a-9c3e-1f2a3b4c5d6e
@@ -35,6 +35,9 @@ enum {
     INKTAG_CMD_INFO  = 0x05, // notifies INFO
     INKTAG_CMD_ABORT = 0x06, // cancel an upload in progress
     INKTAG_CMD_TEMP  = 0x07, // i8 fixed temperature in C for refreshes, -128 = read the panel. Notifies INFO.
+    INKTAG_CMD_LOCK  = 0x08, // 16-byte owner key: lock to this phone, or change the key. Notifies INFO. (fw 0.4+)
+    INKTAG_CMD_AUTH  = 0x09, // no args: notifies CHALLENGE. 16 bytes: HMAC-SHA-256(key, nonce)[0..15], notifies INFO. (fw 0.4+)
+    INKTAG_CMD_UNLOCK = 0x0A, // erase the owner key. Notifies INFO. (fw 0.4+)
 };
 
 // Notifications on the control characteristic: [event][status][payload...]
@@ -43,6 +46,7 @@ enum {
     INKTAG_EVT_RECEIVED  = 0x82, // END accepted, CRC good, refresh starting
     INKTAG_EVT_DISPLAYED = 0x83, // refresh finished; payload: i8 panel temperature (C)
     INKTAG_EVT_INFO      = 0x84, // payload: see inktag_info_t
+    INKTAG_EVT_CHALLENGE = 0x85, // payload: 16-byte nonce to answer with AUTH (fw 0.4+)
     INKTAG_EVT_ERROR     = 0x8F, // status holds the error; payload: u8 command that failed
 };
 
@@ -57,7 +61,12 @@ enum {
     INKTAG_ERR_PANEL_TIMEOUT = 7,  // panel stuck busy, or never busy (no panel); nothing drawn
     INKTAG_ERR_NO_IMAGE = 8,
     INKTAG_ERR_BAD_FORMAT = 9,
+    INKTAG_ERR_LOCKED = 10,        // locked to another phone, or a wrong AUTH answer (fw 0.4+)
 };
+
+// inktag_info_t.lock_flags
+#define INKTAG_LOCK_LOCKED     0x01  // an owner key is set
+#define INKTAG_LOCK_AUTHORIZED 0x02  // this connection may change the badge
 
 typedef struct __attribute__((packed)) {
     uint8_t event;          // INKTAG_EVT_INFO
@@ -72,4 +81,5 @@ typedef struct __attribute__((packed)) {
     uint32_t max_length;    // largest upload accepted, bytes
     int8_t temp_override;   // fixed temperature in C, or -128 when reading the panel (fw 0.2+)
     uint8_t panel_id[3];    // panel product revision read at boot; all FF or all 00 = no answer (fw 0.3+)
+    uint8_t lock_flags;     // INKTAG_LOCK_* (fw 0.4+)
 } inktag_info_t;

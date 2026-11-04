@@ -48,6 +48,16 @@ menu "Ink Tag"
 
     endmenu
 
+    config INKTAG_PIN_BUTTON
+        int "Button GPIO (held 10 s: unlock the badge)"
+        default 9 if IDF_TARGET_ESP32C3
+        default 0
+        help
+            The BOOT button on most boards. Holding it for 10 seconds while the
+            badge is running erases the owner key, for an owner who lost their
+            phone. Only hold it after the badge has started: holding BOOT while
+            powering on starts the chip's own download mode instead.
+
     config INKTAG_TEMP_OVERRIDE
         bool "Use a fixed temperature instead of reading the panel"
         default n

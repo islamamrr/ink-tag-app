@@ -44,6 +44,17 @@
           "bluetoothAlwaysPermission": "Ink Tag uses Bluetooth to send pictures to your badge."
         }
       ],
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsImageWithMaxCount": 1
+          },
+          "androidIntentFilters": [
+            "image/*"
+          ]
+        }
+      ],
       "./plugins/withGradleTuning"
     ],
     "extra": {

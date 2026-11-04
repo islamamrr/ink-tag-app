@@ -8,6 +8,7 @@ import {
   EVENT_NAMES,
   Evt,
   FMT_NATIVE_4BPP,
+  LOCK_KEY_BYTES,
   TEMP_MAX,
   TEMP_MIN,
   TEMP_UNKNOWN,
@@ -41,6 +42,18 @@ export const encodeTemp = (celsius: number | null): Uint8Array => {
   return Uint8Array.of(Cmd.TEMP, t & 0xff);
 };
 
+const withKey = (op: number, bytes: Uint8Array) => {
+  if (bytes.length !== LOCK_KEY_BYTES) throw new Error(`expected ${LOCK_KEY_BYTES} bytes`);
+  const b = new Uint8Array(1 + LOCK_KEY_BYTES);
+  b[0] = op;
+  b.set(bytes, 1);
+  return b;
+};
+export const encodeLock = (key: Uint8Array) => withKey(Cmd.LOCK, key);
+export const encodeAuthRequest = () => Uint8Array.of(Cmd.AUTH);
+export const encodeAuthAnswer = (answer: Uint8Array) => withKey(Cmd.AUTH, answer);
+export const encodeUnlock = () => Uint8Array.of(Cmd.UNLOCK);
+
 const i8 = (b: number) => (b << 24) >> 24;
 
 export interface TagInfo {
@@ -61,6 +74,15 @@ export interface TagInfo {
   tempOverride?: number | null;
   /** undefined: firmware older than 0.3. */
   panelId?: Uint8Array;
+  /** undefined: firmware older than 0.4, which has no lock. */
+  lock?: LockState;
+}
+
+export interface LockState {
+  /** An owner key is set: only its phone may change the badge. */
+  locked: boolean;
+  /** This connection proved it holds the key (or the badge is unlocked). */
+  authorized: boolean;
 }
 
 /** INFO without the fw 0.2+ and 0.3+ extensions. */
@@ -89,6 +111,11 @@ export function parseInfo(data: Uint8Array): TagInfo {
     info.tempOverride = o === TEMP_UNKNOWN ? null : o;
   }
   if (data.length >= INFO_BASE_SIZE + 4) info.panelId = data.slice(18, 21);
+  // fw 0.4 then appends lock flags: bit 0 locked, bit 1 this connection authorized.
+  if (data.length >= INFO_BASE_SIZE + 5) {
+    const f = data[21];
+    info.lock = { locked: (f & 1) !== 0, authorized: (f & 2) !== 0 || (f & 1) === 0 };
+  }
   return info;
 }
 
@@ -101,6 +128,7 @@ export function panelAnswering(info: TagInfo): boolean | undefined {
 }
 
 export const supportsTemp = (info: TagInfo) => info.tempOverride !== undefined;
+export const supportsLock = (info: TagInfo) => info.lock !== undefined;
 
 // ---------------------------------------------------------------- logging
 
@@ -116,6 +144,8 @@ export function describeCommand(data: Uint8Array): string {
   if (data[0] === Cmd.END && data.length >= 5)
     return `${name} crc32 ${v.getUint32(1, true).toString(16).padStart(8, '0')}`;
   if (data[0] === Cmd.CLEAR && data.length >= 2) return `${name} ${data[1]}`;
+  // Never log key material.
+  if ((data[0] === Cmd.LOCK || data[0] === Cmd.AUTH) && data.length > 1) return `${name} (16 bytes)`;
   if (data[0] === Cmd.TEMP && data.length >= 2) {
     const t = i8(data[1]);
     return `${name} override ${t === TEMP_UNKNOWN ? 'off' : `${t} °C`}`;
@@ -147,6 +177,10 @@ export function describeEvent(data: Uint8Array): string {
     if (i.tempOverride !== undefined)
       s += `, override ${i.tempOverride === null ? 'off' : tempStr(i.tempOverride)}`;
     if (i.panelId) s += `, panel id ${hex(i.panelId)}`;
+    if (i.lock)
+      s += i.lock.locked
+        ? `, locked${i.lock.authorized ? ' (authorized)' : ''}`
+        : ', unlocked';
     return s;
   }
   return name;

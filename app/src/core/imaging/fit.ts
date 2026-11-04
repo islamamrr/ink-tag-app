@@ -24,6 +24,7 @@ export interface FitRects {
  * cover crops the source to the target's aspect ratio, centred (like
  * Pillow's ImageOps.fit); contain scales it to fit and pads (ImageOps.pad).
  * `crop` (0..1, cover only) moves the crop window; 0.5 is centred.
+ * `zoom` (cover only, ≥ 1) shrinks the window: 2 shows half the width.
  */
 export function computeFit(
   srcW: number,
@@ -32,6 +33,7 @@ export function computeFit(
   dstH: number,
   mode: FitMode,
   crop: { x: number; y: number } = { x: 0.5, y: 0.5 },
+  zoom = 1,
 ): FitRects {
   const srcAspect = srcW / srcH;
   const dstAspect = dstW / dstH;
@@ -40,6 +42,9 @@ export function computeFit(
     let h = srcH;
     if (srcAspect > dstAspect) w = srcH * dstAspect;
     else h = srcW / dstAspect;
+    const z = Math.max(1, Math.min(8, Number.isFinite(zoom) ? zoom : 1));
+    w /= z;
+    h /= z;
     return {
       src: { x: (srcW - w) * crop.x, y: (srcH - h) * crop.y, width: w, height: h },
       dst: { x: 0, y: 0, width: dstW, height: dstH },
@@ -133,8 +138,9 @@ export function fitImage(
   height: number,
   mode: FitMode,
   crop?: { x: number; y: number },
+  zoom?: number,
 ): RgbaImage {
-  const { src, dst } = computeFit(img.width, img.height, width, height, mode, crop);
+  const { src, dst } = computeFit(img.width, img.height, width, height, mode, crop, zoom);
   const out = createRgba(width, height);
   out.data.fill(255);
   const px = resample(img, src, dst.width, dst.height);

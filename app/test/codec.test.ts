@@ -86,5 +86,5 @@ describe('INFO parsing across firmware versions', () => {
 test('describeEvent is readable', () => {
   expect(describeEvent(Uint8Array.of(0x8f, 5, 2))).toBe('ERROR CRC mismatch (command END)');
   expect(describeEvent(Uint8Array.of(0x83, 0, 0xf6))).toBe('DISPLAYED panel -10 °C');
-  expect(describeEvent(new FakeTag().info())).toContain('fw 0.3.0, 792x528');
+  expect(describeEvent(new FakeTag().info())).toContain('fw 0.4.0, 792x528');
 });

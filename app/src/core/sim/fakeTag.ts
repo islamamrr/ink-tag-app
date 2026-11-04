@@ -4,12 +4,14 @@
 // then notifies READY, data outside an upload is dropped, END checks length
 // and CRC, then RECEIVED, a refresh, and DISPLAYED.
 
+import { lockAnswer } from '../protocol/client';
 import { crc32 } from '../protocol/crc32';
 import {
   Cmd,
   Evt,
   FMT_NATIVE_4BPP,
   FRAME_BYTES,
+  LOCK_KEY_BYTES,
   PANEL_HEIGHT,
   PANEL_WIDTH,
   PROTOCOL_VERSION,
@@ -51,6 +53,12 @@ export class FakeTag {
   /** Fail the next refresh with "panel timeout", as a badge without a panel does. */
   failNextRefresh = false;
 
+  /** Owner key (fw 0.4+), kept across connections like the badge's NVS. */
+  ownerKey: Uint8Array | null = null;
+  /** This connection answered a CHALLENGE correctly. Reset on disconnect. */
+  authorized = false;
+  private nonce: Uint8Array | null = null;
+
   stored: Uint8Array | null = null;
   shown: Uint8Array | null = null;
   tempOverride = TEMP_UNKNOWN;
@@ -62,7 +70,7 @@ export class FakeTag {
 
   constructor(opts: FakeTagOptions = {}) {
     this.timing = opts.timing ?? 'fast';
-    this.firmware = opts.firmware ?? [0, 3, 0];
+    this.firmware = opts.firmware ?? [0, 4, 0];
     this.panelId = opts.panelId ?? Uint8Array.of(0x00, 0x00, 0x66);
     this.sensorTemp = opts.sensorTemp ?? 22;
     this.mtu = opts.mtu ?? 247;
@@ -122,6 +130,15 @@ export class FakeTag {
   /** The link dropped: an upload in progress is cancelled, as on the badge. */
   disconnected() {
     this.receiving = false;
+    this.authorized = false;
+    this.nonce = null;
+  }
+
+  /** The badge's button held for 10 s: forgets the owner key. */
+  resetLock() {
+    this.ownerKey = null;
+    this.authorized = false;
+    this.log('W lock: owner key erased (button reset)');
   }
 
   /** A write to the Control characteristic; replies go through notify. */
@@ -133,6 +150,11 @@ export class FakeTag {
     };
     const displayed = () => notify(Uint8Array.of(Evt.DISPLAYED, 0, this.lastTemp & 0xff));
     const v = new DataView(cmd.buffer, cmd.byteOffset, cmd.byteLength);
+
+    const hasLock = this.atLeast(0, 4);
+    const open = !this.ownerKey || this.authorized;
+    const gated = [Cmd.BEGIN, Cmd.END, Cmd.SHOW, Cmd.CLEAR, Cmd.TEMP, Cmd.LOCK, Cmd.UNLOCK];
+    if (hasLock && !open && (gated as number[]).includes(op)) return error(10);
 
     switch (op) {
       case Cmd.BEGIN: {
@@ -192,13 +214,52 @@ export class FakeTag {
           `I epd: temperature override ${this.tempOverride === TEMP_UNKNOWN ? 'off' : `${this.tempOverride} C`}`,
         );
         return notify(this.info());
+      case Cmd.LOCK:
+        if (!hasLock || cmd.length !== 1 + LOCK_KEY_BYTES) return error(1);
+        this.ownerKey = cmd.slice(1);
+        this.authorized = true;
+        this.log('I lock: owner key set');
+        return notify(this.info());
+      case Cmd.AUTH: {
+        if (!hasLock) return error(1);
+        if (cmd.length === 1) {
+          this.nonce = Uint8Array.from({ length: LOCK_KEY_BYTES }, () =>
+            Math.floor(Math.random() * 256),
+          );
+          const msg = new Uint8Array(2 + LOCK_KEY_BYTES);
+          msg[0] = Evt.CHALLENGE;
+          msg.set(this.nonce, 2);
+          return notify(msg);
+        }
+        if (cmd.length !== 1 + LOCK_KEY_BYTES) return error(1);
+        const nonce = this.nonce;
+        this.nonce = null; // one answer per challenge
+        if (!this.ownerKey) {
+          this.authorized = true;
+          return notify(this.info());
+        }
+        if (!nonce) return error(3);
+        const want = lockAnswer(this.ownerKey, nonce);
+        if (!want.every((b, i) => b === cmd[1 + i])) {
+          this.log('W lock: wrong answer');
+          return error(10);
+        }
+        this.authorized = true;
+        this.log('I lock: authorized');
+        return notify(this.info());
+      }
+      case Cmd.UNLOCK:
+        if (!hasLock) return error(1);
+        this.ownerKey = null;
+        this.log('I lock: owner key erased');
+        return notify(this.info());
       default:
         return error(1);
     }
   }
 
   info(): Uint8Array {
-    const size = this.atLeast(0, 3) ? 21 : this.atLeast(0, 2) ? 18 : 17;
+    const size = this.atLeast(0, 4) ? 22 : this.atLeast(0, 3) ? 21 : this.atLeast(0, 2) ? 18 : 17;
     const b = new Uint8Array(size);
     const v = new DataView(b.buffer);
     b.set([Evt.INFO, 0, PROTOCOL_VERSION, ...this.firmware]);
@@ -210,6 +271,7 @@ export class FakeTag {
     v.setUint32(13, FRAME_BYTES, true);
     if (size >= 18) v.setInt8(17, this.tempOverride);
     if (size >= 21) b.set(this.panelId, 18);
+    if (size >= 22) b[21] = (this.ownerKey ? 1 : 0) | (this.authorized || !this.ownerKey ? 2 : 0);
     return b;
   }
 }

@@ -6,16 +6,23 @@ six-color frame and sends it to an Ink Tag badge over Bluetooth LE.
 Phases 1 and 2 of the plan are in: the protocol client, a simulated badge
 and the whole image pipeline (phase 1), and Bluetooth LE to a real badge
 through react-native-ble-plx (phase 2), all tested on Node against simulated
-badges, plus a developer screen that drives them on a phone. The product UI
-is planned separately.
+badges, plus a developer screen that drives them on a phone.
+
+**v1's features are in too, without the product UI** (see "v1" below): my
+badges, adding one by scanning, locking it to this phone (firmware 0.4),
+reconnecting at launch, demo badges, photos with crop, adjust and picture
+styles, the true preview, text, stickers and frames, nine templates,
+progress while sending, the library, Send from Photos, and the screen check.
+The product UI is designed separately and will sit on top of the same
+service.
 
 ## Run it
 
 ```bash
 cd app
 npm install
-npm run check        # lint + typecheck + 57 tests, no phone needed
-npx expo start       # developer screen; see "On a phone" below
+npm run check        # lint + typecheck + 105 tests, no phone needed
+npx expo start       # developer screens; see "On a phone" below
 ```
 
 ### On a phone
@@ -98,6 +105,47 @@ The test screen also connects to the **simulator badge**, shows the dithered
 preview next to what the simulated panel draws, and has buttons to inject
 faults (CRC failure, panel timeout, dropped link).
 
+## v1
+
+Scope agreed in the wireframes (2 Nov): everything that works with today's
+badge plus locking it to its owner's phone. **Cold weather mode (the
+temperature override) moved to the next version**: the firmware and
+`TagClient.setTempOverride()` still support it, but no v1 feature uses it.
+
+Everything lives behind one service, `InkTag` (`src/core/model/inkTag.ts`),
+plain TypeScript and tested against simulated badges.
+`src/services/inkTag.ts` wires it to the phone. The **v1** developer screen
+(`src/screens/V1Screen.tsx`, the default tab) drives all of it.
+
+| Feature (wireframes) | Where |
+|---|---|
+| Add a badge by scanning, nearest first, in plain words | `InkTag.scan()`, `addBadge()`; `model/proximity.ts` |
+| Remembers it and reconnects at launch | `model/badges.ts` (saved in `badges.json`), `InkTag.reconnect()` |
+| Lock to my phone | `InkTag.addBadge({ lock })`, `setLocked()`, `forget()`; `TagClient.lock/authenticate/unlock`; firmware 0.4 |
+| Several badges per phone, each with its name, use and how it hangs | `BadgeRegistry`; `rename()`, `setUse()`, `setOrientation()` |
+| Demo mode | `InkTag.addDemoBadge()`: a FakeTag behind the same service |
+| Photo to badge: crop, zoom, brightness, contrast, colour boost | `PhotoLayer` (`crop`, `zoom`, `tone`); `design/styles.ts` `toneFor()` |
+| True preview | `InkTag.prepare()`: `rendered` (photo) and `converted.preview` (on badge) |
+| Picture styles: Smooth, Poster, Sketch | `design/styles.ts` |
+| Text, stickers and frames | `TextLayer` (wraps and shrinks to fit), `design/stickers.ts`, `FrameLayer` |
+| Templates: name badge, event ticket, contact QR, Wi-Fi QR, quote, status sign | `design/templates.ts`, plus Text, QR code and Collage for the Create tiles, and the "Hello" picture drawn when a badge is added |
+| Clear progress while sending, time left, safe to walk away | `model/progress.ts`; learns this phone's real timings |
+| Library: history, favourites, collections, send again in one tap | `model/library.ts`; keeps the packed frame so sending again needs no redraw |
+| Send from Photos | `services/share.ts` (expo-share-intent: Android `image/*` filter, iOS share extension) |
+| Screen check | `model/screenCheck.ts` (panel id at boot + last refresh) |
+
+How a design becomes a picture: a **scene** (`design/scene.ts`) is data
+(photos, text, shapes, QR codes, strokes, stickers, frames). `compile()`
+lays it out into a few drawing operations in TypeScript, so layout is tested
+on a laptop; `services/render.ts` paints them with Skia in the panel's
+measured colours, using the bundled Inter font so a design looks the same on
+every phone. Then the existing pipeline dithers, rotates and packs it.
+
+Not in this round: Draw (strokes are supported by scenes and the renderer,
+but drawing needs the real UI's touch canvas) and keeping lock keys in the
+phone's keychain (they're in the app's files for now; expo-secure-store is
+the follow-up).
+
 ## Layout
 
 ```
@@ -111,10 +159,17 @@ src/core/            plain TypeScript, no React Native imports (ESLint enforces 
                      FakeRadio, a pretend BLE stack with FakeTags behind it
   util/base64.ts     base64 for the Bluetooth bridge (Hermes has no Buffer)
   imaging/           palette, fit, tone, dither, frame pack/rotate/preview, pipeline
+  util/sha256.ts     SHA-256 and HMAC for the badge lock
+  design/            v1: scene model and layout, QR codes, stickers, styles, templates
+  model/             v1: InkTag service, badges, library, progress, screen check, storage
 src/services/        phone side: photo decode (Skia), badge connections,
                      radio.ts (react-native-ble-plx + Android permissions),
-                     prefs.ts (remembered badge and settings)
-src/screens/         DebugScreen, the test screen (devUi.tsx: its plain building blocks)
+                     prefs.ts (remembered badge and settings),
+                     inkTag.ts (the v1 service on the phone), render.ts (Skia),
+                     storage.ts (files), fonts.ts, share.ts (share sheet)
+src/screens/         V1Screen (v1 services), DebugScreen (the test screen),
+                     devUi.tsx (their plain building blocks)
+assets/fonts/        Inter Regular and Bold (SIL OFL, see OFL.txt)
 test/                Jest tests; test/golden holds files made by the Python tool
 tools/make_golden.py regenerates test/golden from firmware/tools/inktag.py
 ```
@@ -144,6 +199,21 @@ tools/make_golden.py regenerates test/golden from firmware/tools/inktag.py
   preview pixels, the vendor's DTM1 sample frame round-trips, and dithering in
   RGB mode within 2 points of Pillow's color shares per color (it lands within
   0.2).
+
+- **v1** (`test/v1.test.ts`): SHA-256/HMAC test vectors; the lock (a
+  locked badge refuses another phone, wrong keys fail, the key never goes
+  over the air); QR payloads and module sizes; text wrapping and shrinking;
+  every template inside the badge in both orientations; collage cells;
+  styles and sliders; progress and time left; screen check; the library
+  (dedupe, favourites, collections, sections, pruning, a broken index); and
+  the service end to end on demo badges: add with lock and hello, send, send
+  again, redraw, blank, reconnect, someone else's badge, a button reset,
+  lock off and on, forget, several badges, old firmware, a dead panel.
+- **Skia renderer** (`test/render.skia.test.ts`, on CanvasKit): real font
+  widths, solid colours mapping exactly onto the inks, text inside its box,
+  every QR module where the matrix says, photo crop/circle/tone, every
+  template drawing, and a design through the service to a demo badge with
+  its library preview.
 
 ## CI
 
@@ -227,6 +297,9 @@ into git.
   Hermes on a low-end Android phone will be several times slower; the
   developer screen logs the timings. If it's too slow, move the conversion off
   the JS thread (worklets) or into a small native module, as the plan says.
-- Not yet: remembering the last badge across app restarts, connecting to it
-  automatically, background transfers, and pairing/ownership (needs
-  firmware support, see PROTOCOL.md).
+- The lock needs firmware 0.4 on the badge; older firmware is added
+  unlocked and the service says so (`lockUnsupported`). Firmware 0.4 hasn't
+  been compiled yet (see firmware/README.md).
+- Send from Photos changes native config (share extension, intent filter),
+  so it needs a new build, not just a JavaScript reload.
+- Not yet: background transfers.

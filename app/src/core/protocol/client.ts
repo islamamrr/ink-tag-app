@@ -9,12 +9,16 @@ import {
   describeEvent,
   displayedTemperature,
   encodeAbort,
+  encodeAuthAnswer,
+  encodeAuthRequest,
   encodeBegin,
   encodeClear,
   encodeEnd,
   encodeInfo,
+  encodeLock,
   encodeShow,
   encodeTemp,
+  encodeUnlock,
   parseInfo,
   type TagInfo,
 } from './codec';
@@ -23,13 +27,16 @@ import {
   Evt,
   EVENT_NAMES,
   FMT_NATIVE_4BPP,
+  LOCK_KEY_BYTES,
   MAX_ATTR_LEN,
   PROTOCOL_VERSION,
 } from './constants';
 import { crc32 } from './crc32';
+import { hmacSha256 } from '../util/sha256';
 import {
   CancelledError,
   DisconnectedError,
+  LockedError,
   TagError,
   TimeoutError,
   UnsupportedProtocolError,
@@ -120,6 +127,10 @@ export class TagClient {
 
   async close() {
     this.unsubs.forEach((u) => u());
+    // Anything still waiting (a refresh, a reply) ends now as "disconnected",
+    // instead of waiting out its timeout with nobody listening.
+    this.disconnected = true;
+    this.wake?.();
     await this.link.close();
   }
 
@@ -232,6 +243,48 @@ export class TagClient {
   setTempOverride(celsius: number | null): Promise<TagInfo> {
     return this.exclusive(async () => {
       await this.send(encodeTemp(celsius));
+      return parseInfo(await this.expect(Evt.INFO, this.timeouts.info));
+    });
+  }
+
+  // ------------------------------------------------------------ lock (fw 0.4+)
+
+  /**
+   * Locks the badge to `key` (16 random bytes the phone keeps). Allowed on an
+   * unlocked badge, or once this connection is authorized (to change the key).
+   */
+  lock(key: Uint8Array): Promise<TagInfo> {
+    return this.exclusive(async () => {
+      await this.send(encodeLock(key));
+      return parseInfo(await this.expect(Evt.INFO, this.timeouts.info));
+    });
+  }
+
+  /**
+   * Proves this phone holds the owner key: the badge sends a fresh nonce, the
+   * phone answers with the first 16 bytes of HMAC-SHA-256(key, nonce). The key
+   * itself never goes over the air. Rejects with LockedError on a wrong key.
+   */
+  authenticate(key: Uint8Array): Promise<TagInfo> {
+    return this.exclusive(async () => {
+      await this.send(encodeAuthRequest());
+      const ch = await this.expect(Evt.CHALLENGE, this.timeouts.info);
+      const nonce = ch.subarray(2, 2 + LOCK_KEY_BYTES);
+      if (nonce.length !== LOCK_KEY_BYTES) throw new Error('malformed CHALLENGE');
+      await this.send(encodeAuthAnswer(lockAnswer(key, nonce)));
+      try {
+        return parseInfo(await this.expect(Evt.INFO, this.timeouts.info));
+      } catch (e) {
+        if (e instanceof TagError && e.code === ErrorCode.LOCKED) throw new LockedError();
+        throw e;
+      }
+    });
+  }
+
+  /** Forgets the owner key, so any phone can use the badge. Needs an authorized connection. */
+  unlock(): Promise<TagInfo> {
+    return this.exclusive(async () => {
+      await this.send(encodeUnlock());
       return parseInfo(await this.expect(Evt.INFO, this.timeouts.info));
     });
   }
@@ -359,3 +412,7 @@ export class TagClient {
     }
   }
 }
+
+/** The AUTH answer: HMAC-SHA-256(key, nonce), first 16 bytes. Same on the badge. */
+export const lockAnswer = (key: Uint8Array, nonce: Uint8Array) =>
+  hmacSha256(key, nonce).subarray(0, LOCK_KEY_BYTES);

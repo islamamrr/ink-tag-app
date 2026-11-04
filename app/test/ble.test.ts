@@ -103,7 +103,7 @@ describe('BleLink', () => {
   test('hello and a full upload over the radio', async () => {
     const { client, tag, link, radio } = await connected();
     expect(link.mtu).toBe(517);
-    expect((await client.hello()).firmware).toBe('0.3.0');
+    expect((await client.hello()).firmware).toBe('0.4.0');
     const frame = testFrame();
     const r = await client.upload(frame);
     expect(r.chunkSize).toBe(512); // MTU 517 allows 514, but a GATT value is at most 512

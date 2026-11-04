@@ -33,6 +33,9 @@ export const Cmd = {
   INFO: 0x05,
   ABORT: 0x06,
   TEMP: 0x07, // i8 °C, or TEMP_UNKNOWN to read the panel (fw 0.2+)
+  LOCK: 0x08, // 16-byte owner key: locks the badge to this phone (fw 0.4+)
+  AUTH: 0x09, // no args: asks for a CHALLENGE; 16 bytes: the answer (fw 0.4+)
+  UNLOCK: 0x0a, // forgets the owner key (fw 0.4+)
 } as const;
 export type CmdCode = (typeof Cmd)[keyof typeof Cmd];
 
@@ -41,6 +44,7 @@ export const Evt = {
   RECEIVED: 0x82,
   DISPLAYED: 0x83, // i8 panel temperature
   INFO: 0x84,
+  CHALLENGE: 0x85, // 16-byte nonce to answer with AUTH (fw 0.4+)
   ERROR: 0x8f, // status = error code, then u8 failing opcode
 } as const;
 export type EvtCode = (typeof Evt)[keyof typeof Evt];
@@ -55,6 +59,8 @@ export const ErrorCode = {
   PANEL_TIMEOUT: 7,
   NO_IMAGE: 8,
   BAD_FORMAT: 9,
+  /** Locked to another phone, or a wrong AUTH answer (fw 0.4+). */
+  LOCKED: 10,
 } as const;
 
 export const ERROR_NAMES: Record<number, string> = {
@@ -67,6 +73,7 @@ export const ERROR_NAMES: Record<number, string> = {
   7: 'panel timeout',
   8: 'no stored image',
   9: 'bad format',
+  10: 'locked',
 };
 
 export const COMMAND_NAMES: Record<number, string> = {
@@ -77,6 +84,9 @@ export const COMMAND_NAMES: Record<number, string> = {
   [Cmd.INFO]: 'INFO',
   [Cmd.ABORT]: 'ABORT',
   [Cmd.TEMP]: 'TEMP',
+  [Cmd.LOCK]: 'LOCK',
+  [Cmd.AUTH]: 'AUTH',
+  [Cmd.UNLOCK]: 'UNLOCK',
 };
 
 export const EVENT_NAMES: Record<number, string> = {
@@ -84,6 +94,7 @@ export const EVENT_NAMES: Record<number, string> = {
   [Evt.RECEIVED]: 'RECEIVED',
   [Evt.DISPLAYED]: 'DISPLAYED',
   [Evt.INFO]: 'INFO',
+  [Evt.CHALLENGE]: 'CHALLENGE',
   [Evt.ERROR]: 'ERROR',
 };
 
@@ -102,3 +113,6 @@ export type ColorName = keyof typeof Color;
 export const TEMP_UNKNOWN = -128;
 export const TEMP_MIN = -20;
 export const TEMP_MAX = 60;
+
+/** Owner key, CHALLENGE nonce and AUTH answer are all this long. */
+export const LOCK_KEY_BYTES = 16;

@@ -7,11 +7,13 @@
 #include "freertos/queue.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
+#include "driver/gpio.h"
 #include "nvs_flash.h"
 
 #include "ble_service.h"
 #include "epd_uc8279.h"
 #include "image_store.h"
+#include "lock.h"
 #include "protocol.h"
 
 static const char *TAG = "inktag";
@@ -69,6 +71,8 @@ static void notify_info(void)
         .temperature = epd_last_temperature(),
         .max_length = EPD_FRAME_BYTES,
         .temp_override = epd_get_temp_override(),
+        .lock_flags = (lock_is_locked() ? INKTAG_LOCK_LOCKED : 0) |
+                      (lock_allowed() ? INKTAG_LOCK_AUTHORIZED : 0),
     };
     memcpy(info.panel_id, epd_panel_id(), sizeof(info.panel_id));
     ble_service_notify(&info, sizeof(info));
@@ -124,8 +128,37 @@ static void show_stored(uint8_t cmd)
     report_show(epd_show(image_store_read, NULL), cmd, INKTAG_ERR_FLASH);
 }
 
+static void notify_challenge(void)
+{
+    uint8_t msg[2 + LOCK_KEY_BYTES] = {INKTAG_EVT_CHALLENGE, INKTAG_OK};
+    lock_challenge(&msg[2]);
+    ble_service_notify(msg, sizeof(msg));
+}
+
+// Commands that change the badge. On a locked badge they need an authorized
+// connection; INFO, ABORT and AUTH are always allowed.
+static bool needs_owner(uint8_t op)
+{
+    switch (op) {
+    case INKTAG_CMD_BEGIN:
+    case INKTAG_CMD_END:
+    case INKTAG_CMD_SHOW:
+    case INKTAG_CMD_CLEAR:
+    case INKTAG_CMD_TEMP:
+    case INKTAG_CMD_LOCK:
+    case INKTAG_CMD_UNLOCK:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static void handle_command(const uint8_t *cmd, size_t len)
 {
+    if (needs_owner(cmd[0]) && !lock_allowed()) {
+        notify_error(INKTAG_ERR_LOCKED, cmd[0]);
+        return;
+    }
     switch (cmd[0]) {
     case INKTAG_CMD_BEGIN: {
         if (len < 6) {
@@ -223,9 +256,86 @@ static void handle_command(const uint8_t *cmd, size_t len)
         notify_info();
         break;
 
+    case INKTAG_CMD_LOCK:
+        if (len != 1 + LOCK_KEY_BYTES) {
+            notify_error(INKTAG_ERR_BAD_COMMAND, cmd[0]);
+        } else if (lock_set_key(&cmd[1]) != ESP_OK) {
+            notify_error(INKTAG_ERR_FLASH, cmd[0]);
+        } else {
+            notify_info();
+        }
+        break;
+
+    case INKTAG_CMD_AUTH:
+        if (len == 1) {
+            notify_challenge();
+        } else if (len != 1 + LOCK_KEY_BYTES) {
+            notify_error(INKTAG_ERR_BAD_COMMAND, cmd[0]);
+        } else {
+            esp_err_t err = lock_answer(&cmd[1]);
+            if (err == ESP_OK) {
+                notify_info();
+            } else {
+                notify_error(err == ESP_ERR_INVALID_STATE ? INKTAG_ERR_BAD_STATE : INKTAG_ERR_LOCKED, cmd[0]);
+            }
+        }
+        break;
+
+    case INKTAG_CMD_UNLOCK:
+        if (lock_clear() != ESP_OK) {
+            notify_error(INKTAG_ERR_FLASH, cmd[0]);
+        } else {
+            notify_info();
+        }
+        break;
+
     default:
         notify_error(INKTAG_ERR_BAD_COMMAND, cmd[0]);
         break;
+    }
+}
+
+// Holding the button for this long erases the owner key (lost phone).
+#define UNLOCK_HOLD_MS 10000
+
+static void button_init(void)
+{
+    gpio_config_t io = {
+        .pin_bit_mask = 1ULL << CONFIG_INKTAG_PIN_BUTTON,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&io);
+}
+
+// Called from the main loop. Pressed = low.
+static void button_poll(void)
+{
+    static TickType_t pressed_at;
+    static bool pressed, done;
+    bool down = gpio_get_level(CONFIG_INKTAG_PIN_BUTTON) == 0;
+    TickType_t now = xTaskGetTickCount();
+    if (!down) {
+        pressed = done = false;
+        return;
+    }
+    if (!pressed) {
+        pressed = true;
+        pressed_at = now;
+        return;
+    }
+    if (done || now - pressed_at < pdMS_TO_TICKS(UNLOCK_HOLD_MS)) {
+        return;
+    }
+    done = true;
+    if (!lock_is_locked()) {
+        ESP_LOGI(TAG, "button held, but the badge isn't locked");
+        return;
+    }
+    if (lock_clear() == ESP_OK) {
+        ESP_LOGW(TAG, "button held 10 s: unlocked");
+        // Show it worked: the colour bands, as on a fresh badge.
+        epd_show(test_pattern_reader, NULL);
     }
 }
 
@@ -239,6 +349,8 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
 
     ESP_ERROR_CHECK(image_store_init());
+    ESP_ERROR_CHECK(lock_init());
+    button_init();
     ESP_ERROR_CHECK(epd_init());
     // Wiring check: logged, and reported to the app in INFO. Not fatal, and
     // the test pattern below still runs, because it isn't confirmed yet that
@@ -264,6 +376,9 @@ void app_main(void)
     }
 
     for (;;) {
+        if (s_state == STATE_IDLE) {
+            button_poll();
+        }
         // While receiving, keep flash writes flowing; otherwise mostly sleep.
         size_t n = drain_data(s_state == STATE_RECEIVING ? pdMS_TO_TICKS(5) : 0);
         ble_evt_t ev;
@@ -284,6 +399,7 @@ void app_main(void)
                          (unsigned)image_store_written());
             }
             s_state = STATE_IDLE;
+            lock_disconnected();
             drain_all();
             break;
         }
