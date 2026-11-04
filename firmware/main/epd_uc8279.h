@@ -39,7 +39,9 @@ esp_err_t epd_identify(void);
 const uint8_t *epd_panel_id(void);
 
 // Full two-pass refresh from a 4 bpp frame. Blocks until the panel is done
-// (tens of seconds) and leaves the panel in deep sleep.
+// (tens of seconds) and leaves the panel in deep sleep. ESP_ERR_TIMEOUT when
+// the panel stays busy too long, or when a refresh never goes busy or ends
+// impossibly fast (no panel driving BUSY): nothing was drawn either way.
 esp_err_t epd_show(epd_reader_t reader, void *ctx);
 
 // Fills the whole panel with one color.

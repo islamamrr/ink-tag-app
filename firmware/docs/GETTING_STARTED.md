@@ -80,12 +80,15 @@ ble: advertising as InkTag-1A2B
 inktag: no stored image, drawing test pattern
 epd: temperature byte 0x18
 epd: panel 24 C, waveform codes 32/37
-inktag: test pattern: ESP_OK
+epd: refresh took 15000 ms
+epd: refresh took 15000 ms
+inktag: test pattern drawn
 ```
 
 | What you see | Likely cause |
 |---|---|
 | `panel busy timeout` | BUSY or RST wire wrong, ribbon not seated, or 3.3 V missing on the booster board. Recheck steps 3 and 4. |
+| `refresh never started` or `refresh finished in N ms, too fast to be real`, then `test pattern NOT drawn` | The controller never pulled BUSY low, so nothing was drawn: panel not on the ribbon, booster missing or unpowered, or the BUSY wire. Firmware 0.3.1+; this is what a bare board shows. |
 | Panel never flickers, no timeout | SCL, SDA, CS or D/C wire wrong, or BS (pin 8) not tied to GND. |
 | Panel flickers but stays blank or the colors are faint | The booster isn't reaching its voltages. Measure VGH and VGL as described at the end of BOOSTER.md. |
 | Bands in the wrong colors or garbled | Tell me what you see. It may be a driver detail I need to fix. |
