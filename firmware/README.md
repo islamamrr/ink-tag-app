@@ -15,7 +15,7 @@ Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3
 | `main/protocol.h` | BLE protocol constants, shared with the app spec |
 | `docs/PROTOCOL.md` | Protocol description for the phone app |
 | `tools/inktag.py` | PC test tool: converts pictures and sends them over BLE |
-| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0). Still firmware 0.1.0: the 0.2 and 0.3 source changes haven't been compiled yet |
+| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0). Still firmware 0.1.0: later versions are built from source on the laptop |
 | `docs/GETTING_STARTED.md` | Step-by-step from parts to first picture |
 
 ## Wiring
@@ -65,7 +65,7 @@ Six colors are drawn in two refreshes. For each one, the 4-bit frame is converte
 
 The temperature byte comes from the controller's on-chip sensor: in the UltraChip UC8179c datasheet, `0x41 00` selects the internal sensor and `0x40` returns signed whole degrees (`0x19` = 25 °C, `0xE7` = −25 °C), and other UC8279 drivers read it the same way. The optional external sensor on TSCL/TSDA isn't needed. If the log still shows `temperature byte 0x00` or `0xff`, suspect the SDA wire, and turn on *Ink Tag* → *Use a fixed temperature* in menuconfig meanwhile.
 
-At boot the firmware also reads the controller's product revision (command `0x70`, three bytes, read back over SDA like the temperature) and logs `panel id xx xx xx`. All `ff` or all `00` means the panel didn't answer, which usually points at wiring. The app gets the same bytes in INFO. The UC8279E's expected answer isn't documented, so this is a hint, not a verdict, and the test pattern is drawn either way.
+At boot the firmware also reads the controller's product revision (command `0x70`, three bytes, read back over SDA like the temperature) and logs `panel id xx xx xx`. All `ff` or all `00` means the panel didn't answer, which usually points at wiring. The app gets the same bytes in INFO. The UC8279E's expected answer isn't documented, so this is a hint, not a verdict, and the test pattern is attempted either way. Since 0.3.1 a refresh that never pulls BUSY low, or ends in under a second, fails with "panel timeout" (ERROR 7) instead of reporting DISPLAYED, so a bare board no longer claims it drew anything.
 
 After commands that start work (refresh, temperature sensing) the driver waits up to 50 ms for BUSY to go low before waiting for it to go high again, so a slow BUSY can't make pass 2 start while pass 1 is still drawing.
 
