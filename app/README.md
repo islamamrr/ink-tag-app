@@ -50,6 +50,17 @@ without a new build. A new build is only needed when native packages or
 **Android, built locally:** with Android Studio installed and the phone in
 USB debugging mode, `npx expo run:android` builds, installs and starts it.
 
+**Android, standalone APK (no laptop needed):** the development build above
+loads its JavaScript from the laptop. To get an app that runs on its own,
+either download the APK from the **Android APK** workflow in GitHub Actions
+(Actions tab, open a run, "Artifacts" at the bottom; "Run workflow" starts a
+new one), or build it on EAS with
+`npx eas-cli@latest build --profile preview --platform android`.
+Both use the same package id as the development build but a different
+signing key, so uninstall the development build first. The GitHub APK is
+signed with the standard React Native debug key: fine for testing and
+handing to friends, not for the Play Store.
+
 **iPhone:** an iOS development build needs a paid Apple Developer account.
 `npx eas-cli@latest device:create` registers the phone, then
 `npx eas-cli@latest build --profile development --platform ios`.
