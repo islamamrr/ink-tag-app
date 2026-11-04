@@ -8,7 +8,7 @@
 #include "freertos/queue.h"
 #include "freertos/stream_buffer.h"
 
-#define BLE_CMD_MAX 16
+#define BLE_CMD_MAX 24  // AUTH and LOCK are 17 bytes
 
 typedef enum {
     BLE_EVT_COMMAND,      // control characteristic write

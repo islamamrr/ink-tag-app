@@ -40,6 +40,14 @@ export class UnsupportedProtocolError extends Error {
   }
 }
 
+/** The badge is locked and this phone has no key for it (or a wrong one). */
+export class LockedError extends Error {
+  constructor() {
+    super('the badge is locked to another phone');
+    this.name = 'LockedError';
+  }
+}
+
 export type BluetoothProblem =
   | 'off'
   | 'unauthorized'
@@ -92,6 +100,8 @@ export function userMessage(e: unknown): string {
         [ErrorCode.PANEL_TIMEOUT]: "The badge's screen didn't respond. Check the display connection.",
         [ErrorCode.NO_IMAGE]: 'The badge has no stored picture yet.',
         [ErrorCode.BAD_FORMAT]: "The badge doesn't understand this picture format.",
+        [ErrorCode.LOCKED]:
+          'This badge is locked to another phone. To unlock it, hold its button for 10 seconds while it is on.',
       }[err.code] ?? `The badge reported ${err.message}.`;
   } else if (err instanceof TimeoutError) {
     msg = 'The badge stopped answering. Move closer and try again.';
@@ -109,6 +119,9 @@ export function userMessage(e: unknown): string {
       'connect-failed': "Couldn't connect to the badge. Move closer and try again.",
       'not-a-badge': "That device isn't an Ink Tag badge.",
     }[err.problem];
+  } else if (err instanceof LockedError) {
+    msg =
+      'This badge is locked to another phone. To unlock it, hold its button for 10 seconds while it is on.';
   } else if (err instanceof CancelledError) {
     msg = 'Cancelled.';
   } else {

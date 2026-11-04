@@ -17,7 +17,7 @@ const testFrame = () => new Uint8Array(FRAME_BYTES).map((_, i) => (i * 7) & 0xff
 test('hello reads INFO from a fresh badge', async () => {
   const { client } = await simBadge();
   const info = await client.hello();
-  expect(info.firmware).toBe('0.3.0');
+  expect(info.firmware).toBe('0.4.0');
   expect(info.hasImage).toBe(false);
   expect(supportsTemp(info)).toBe(true);
 });

@@ -2,7 +2,7 @@
 
 ESP-IDF firmware for the Ink Tag badge: an ESP32 receives pictures from a phone over Bluetooth LE, keeps the last one in flash, and draws it on the Topwin TWE0368NW58 3.68" six-color e-paper panel (528 × 792). The controller is a UC8279E according to the vendor's file name; the datasheet doesn't name it and has no command table, so the driver follows the vendor's reference code.
 
-Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3**. Not yet run on hardware.
+Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3**. Not yet run on hardware. Firmware 0.4 adds the lock (`main/lock.c`); it was written without an ESP-IDF toolchain at hand, so the first `idf.py build` of 0.4 is also its first compile.
 
 ## Layout
 
@@ -11,7 +11,8 @@ Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3
 | `main/epd_uc8279.c` | Panel driver, ported from the vendor's STM32 reference code |
 | `main/image_store.c` | Stores the received image in the `image` flash partition |
 | `main/ble_service.c` | BLE peripheral (NimBLE) with the Ink Tag GATT service |
-| `main/main.c` | Ties it together: upload state machine, commands, refresh |
+| `main/main.c` | Ties it together: upload state machine, commands, refresh, the button |
+| `main/lock.c` | Lock to the owner's phone: key in NVS, challenge and HMAC check |
 | `main/protocol.h` | BLE protocol constants, shared with the app spec |
 | `docs/PROTOCOL.md` | Protocol description for the phone app |
 | `tools/inktag.py` | PC test tool: converts pictures and sends them over BLE |
@@ -79,3 +80,7 @@ The frame is streamed from flash in 2 KB pieces, so the firmware never holds the
 - Pairing / ownership, so only the owner's phone can change the badge.
 - Compression for faster uploads (209 KB takes several seconds over BLE).
 - OTA firmware updates (the partition table has room to add them).
+
+## Lock (0.4)
+
+The app locks a badge to its phone when it's added, so a stranger nearby can't change it. How it works is in [docs/PROTOCOL.md](docs/PROTOCOL.md#lock-firmware-04). To unlock a badge without its phone, hold the button (BOOT on the dev boards; `idf.py menuconfig` → *Ink Tag* → *Button GPIO*) for 10 seconds while the badge is running; it redraws its colour bands when done. A locked badge refuses `tools/inktag.py` and the devtool, so unlock it first to use them.
