@@ -1,0 +1,70 @@
+name: Android start-up check
+# Builds the app for the emulator's CPU, installs it on a fresh Android
+# emulator, opens it and reports whether it crashed (with the crash log).
+# Catches "crashes on start" before the APK reaches a phone.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['app/**', '.github/workflows/android-smoke.yml']
+concurrency:
+  group: android-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - run: npx expo prebuild --platform android --no-install
+      - name: Build release APK for x86_64
+        working-directory: app/android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon
+      - name: Enable KVM
+        working-directory: .
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start the app on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          working-directory: app
+          script: |
+            adb install android/app/build/outputs/apk/release/app-release.apk
+            adb logcat -c
+            adb shell monkey -p dev.inktag.app -c android.intent.category.LAUNCHER 1
+            sleep 25
+            adb logcat -d -v time > ../logcat.txt || true
+            adb shell pidof dev.inktag.app || echo "NOT RUNNING"
+            adb exec-out screencap -p > ../screen.png || true
+      - name: Crash log
+        if: always()
+        working-directory: .
+        run: |
+          echo "---- crash lines ----"
+          grep -E "FATAL|AndroidRuntime|ReactNativeJS|SIGSEGV|SIGABRT|Fatal signal|UnsatisfiedLink|dev\.inktag" logcat.txt | head -150 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-logs
+          path: |
+            logcat.txt
+            screen.png
+          retention-days: 7

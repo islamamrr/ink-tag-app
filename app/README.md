@@ -59,7 +59,10 @@ USB debugging mode, `npx expo run:android` builds, installs and starts it.
 
 **Android, standalone APK (no laptop needed):** the development build above
 loads its JavaScript from the laptop. To get an app that runs on its own,
-either download the APK from the **Android APK** workflow in GitHub Actions
+either download the newest build from the repo's **Releases** page (every merge to
+`main` replaces the `latest` release; open
+`https://github.com/islamamrr/ink-tag-app/releases/tag/latest` on the phone, tap
+`InkTag.apk`, install over the old one), or from the **Android APK** workflow in GitHub Actions
 (Actions tab, open a run, "Artifacts" at the bottom; "Run workflow" starts a
 new one), or build it on EAS with
 `npx eas-cli@latest build --profile preview --platform android`.
