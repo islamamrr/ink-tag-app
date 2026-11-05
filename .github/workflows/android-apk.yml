@@ -61,7 +61,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./app/app.json').expo.version")
-          cp app/out/*.apk InkTag.apk
+          cp out/*.apk InkTag.apk
           gh release delete latest --cleanup-tag --yes || true
           gh release create latest InkTag.apk \
             --target "$GITHUB_SHA" \
