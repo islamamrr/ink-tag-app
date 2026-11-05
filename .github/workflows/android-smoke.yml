@@ -52,7 +52,7 @@ jobs:
             adb shell monkey -p dev.inktag.app -c android.intent.category.LAUNCHER 1
             sleep 25
             adb logcat -d -v time > ../logcat.txt || true
-            adb shell pidof dev.inktag.app || echo "NOT RUNNING"
+            adb shell pidof dev.inktag.app || { echo "The app is not running: it crashed on start."; exit 1; }
             adb exec-out screencap -p > ../screen.png || true
       - name: Crash log
         if: always()
