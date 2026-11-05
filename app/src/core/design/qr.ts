@@ -8,8 +8,31 @@ export type QrLevel = 'L' | 'M' | 'Q' | 'H';
 
 // The library's default treats text as Latin-1; names and Wi-Fi passwords
 // can be anything, so encode as UTF-8 (every current phone reader expects it).
-// eslint-disable-next-line import/no-named-as-default-member
-qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
+// Our own encoder: the library's ESM build, which the app bundle uses, has no
+// stringToBytesFuncs table (only its CommonJS build does), and reading it
+// crashed the app on start.
+qrcode.stringToBytes = utf8Bytes;
+
+/** UTF-8 bytes of a string; lone surrogates become U+FFFD. */
+export function utf8Bytes(s: string): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < s.length; i++) {
+    let c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+      const d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) {
+        c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00);
+        i++;
+      }
+    }
+    if (c >= 0xd800 && c <= 0xdfff) c = 0xfffd;
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+  }
+  return out;
+}
 
 /** true = dark module, rows top to bottom. Throws if the data is too long for a QR code. */
 export function qrMatrix(data: string, level: QrLevel = 'M'): boolean[][] {
