@@ -8,13 +8,16 @@ and the whole image pipeline (phase 1), and Bluetooth LE to a real badge
 through react-native-ble-plx (phase 2), all tested on Node against simulated
 badges, plus a developer screen that drives them on a phone.
 
-**v1's features are in too, without the product UI** (see "v1" below): my
-badges, adding one by scanning, locking it to this phone (firmware 0.4),
-reconnecting at launch, demo badges, photos with crop, adjust and picture
-styles, the true preview, text, stickers and frames, nine templates,
-progress while sending, the library, Send from Photos, and the screen check.
-The product UI is designed separately and will sit on top of the same
-service.
+**v1's features are in too**: my badges, adding one by scanning, locking it
+to this phone (firmware 0.4), reconnecting at launch, demo badges, photos
+with crop, adjust and picture styles, the true preview, text, stickers and
+frames, templates, progress while sending, the library, Send from Photos,
+and the screen check.
+
+**The app now opens on the wireframe UI** (see "Wireframe UI" below): four
+tabs, Templates, Gallery, My badge and Settings, in plain greys so the flow
+can be tested on a real badge before the visual design. The old developer
+screen is under Settings › For testing.
 
 ## Run it
 
@@ -117,8 +120,8 @@ temperature override) moved to the next version**: the firmware and
 
 Everything lives behind one service, `InkTag` (`src/core/model/inkTag.ts`),
 plain TypeScript and tested against simulated badges.
-`src/services/inkTag.ts` wires it to the phone. The **v1** developer screen
-(`src/screens/V1Screen.tsx`, the default tab) drives all of it.
+`src/services/inkTag.ts` wires it to the phone, and the wireframe UI
+(`src/ui/`) drives all of it.
 
 | Feature (wireframes) | Where |
 |---|---|
@@ -149,6 +152,42 @@ but drawing needs the real UI's touch canvas) and keeping lock keys in the
 phone's keychain (they're in the app's files for now; expo-secure-store is
 the follow-up).
 
+## Wireframe UI
+
+Built from the "Gallery, with Studio's editor" wireframes. Greys only;
+pictures for the badge keep their six inks. `src/ui/kit.tsx` holds every
+building block, so the visual design can replace it without touching the
+screens.
+
+| Tab / flow | What's there |
+|---|---|
+| First run | Welcome wall of real templates, then three setup screens: Bluetooth explained, find (closest badge first, others one tap away), set up (name, upright or sideways, lock). After 20 s with nothing found: three checks and the demo badge. |
+| **Templates** (opens here) | "Now on My badge" line, the newest pack as the "New" shelf, categories (Work, Everyday, Home and shop, Events, Fun, Live), popular, everything, and Start from scratch (Photo, Text, QR code, Collage). Search. A template's preview with its layouts and what you'll fill in. |
+| Template screens | **Form** (fill in, live preview, Next). **List** (to-do, shopping: add, tick, reorder, "Update my badge" in place). **Board** (status board, open/closed: tap one and it's sent; Edit to change the set). **Live** (clock, day and date, countdown, year progress: every hour, every 15 minutes or once a morning; the phone sends each update while the app is open and catches up when it's opened again). |
+| Photo editor | Drag to move under the badge outline, zoom, Fill / Fit, then a dock: Text, Sticker, Frame, Look (styles, sliders, Photo / On badge compare). |
+| Send | Last look, "to: My badge" chip (sheet to pick another badge), Slide to ink, four plain stages, the drawing wipe once it's safe to walk away, then back to the Gallery with a note. Failures say what the badge shows now, with Try again / Send it later / What went wrong. |
+| **Gallery** | "Now on" card (a strip of badges once there are two), All / Favourites / collections, + sheet. An item: send again, edit a copy, add to a collection, favourite, delete. |
+| **My badge** | Status, the problem box when it can't be reached, Redraw / Check screen / Blank, name, how it hangs, lock, forget. With two or more badges the tab becomes Badges, a list of these pages. |
+| **Settings** | Connect when the app opens, default look, add a badge or a demo badge, troubleshooting, share a log, about, the old test screen. |
+
+Navigation is a small tab-and-stack in `src/ui/nav.tsx` rather than Expo
+Router, to avoid new native code in this round; each route there maps to a
+file under `src/app/` when moving to Expo Router.
+
+### Templates are data
+
+`src/core/design/catalog.json` lists every template, the packs and the
+categories. A template is either a built-in one written in code
+(`templates.ts`, e.g. the name badge) with catalogue details added, or a
+**spec** (`specs.ts`): fields, sample content, and one to three layouts,
+each a column of blocks (text, list, QR, photo, bar, rule, gap) with tokens
+like `{{name}}`, `{{now:HH:mm}}` and `{{daysUntil:date}}`. New templates and
+packs need no new code: add them to the JSON. The app also reads a newer
+`catalog.json` from its storage if one is there, which is the hook for
+shipping packs without an app update (downloading it is a later step).
+Every template in the file works with today's firmware; a spec can say it
+needs a newer firmware (`firmware`) for later ones.
+
 ## Layout
 
 ```
@@ -163,15 +202,18 @@ src/core/            plain TypeScript, no React Native imports (ESLint enforces 
   util/base64.ts     base64 for the Bluetooth bridge (Hermes has no Buffer)
   imaging/           palette, fit, tone, dither, frame pack/rotate/preview, pipeline
   util/sha256.ts     SHA-256 and HMAC for the badge lock
-  design/            v1: scene model and layout, QR codes, stickers, styles, templates
-  model/             v1: InkTag service, badges, library, progress, screen check, storage
+  design/            v1: scene model and layout, QR codes, stickers, styles, templates;
+                     catalog.json + catalog.ts (packs), specs.ts (templates as data), list.ts
+  model/             v1: InkTag service, badges, library, progress, screen check, storage;
+                     live.ts (live template schedule), appState.ts (settings, drafts)
 src/services/        phone side: photo decode (Skia), badge connections,
                      radio.ts (react-native-ble-plx + Android permissions),
                      prefs.ts (remembered badge and settings),
                      inkTag.ts (the v1 service on the phone), render.ts (Skia),
-                     storage.ts (files), fonts.ts, share.ts (share sheet)
-src/screens/         V1Screen (v1 services), DebugScreen (the test screen),
-                     devUi.tsx (their plain building blocks)
+                     storage.ts (files), fonts.ts, share.ts (share sheet),
+                     app.ts (services for the UI, live runner, support log)
+src/ui/              the wireframe UI: kit.tsx, nav.tsx, Shell.tsx, screens/
+src/screens/         DebugScreen (the low-level test screen), devUi.tsx
 assets/fonts/        Inter Regular and Bold (SIL OFL, see OFL.txt)
 test/                Jest tests; test/golden holds files made by the Python tool
 tools/make_golden.py regenerates test/golden from firmware/tools/inktag.py
@@ -305,4 +347,7 @@ into git.
   been compiled yet (see firmware/README.md).
 - Send from Photos changes native config (share extension, intent filter),
   so it needs a new build, not just a JavaScript reload.
-- Not yet: background transfers.
+- Not yet: background transfers. Live templates only update while the app
+  is open (JavaScript timers stop in the background); they catch up on
+  return. Background updates need a background task or the self-keeping
+  clock in firmware.

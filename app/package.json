@@ -1,6 +1,6 @@
 {
   "name": "inktag-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "index.ts",
   "dependencies": {
     "@shopify/react-native-skia": "2.14.0",
@@ -19,7 +19,8 @@
     "qrcode-generator": "^2.0.4",
     "react": "19.3.0",
     "react-native": "0.88.1",
-    "react-native-ble-plx": "^3.5.1"
+    "react-native-ble-plx": "^3.5.1",
+    "react-native-safe-area-context": "~5.10.1"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

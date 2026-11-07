@@ -1,0 +1,1855 @@
+{
+ "version": 1,
+ "categories": [
+  {
+   "id": "work",
+   "title": "Work"
+  },
+  {
+   "id": "everyday",
+   "title": "Everyday"
+  },
+  {
+   "id": "home",
+   "title": "Home and shop"
+  },
+  {
+   "id": "events",
+   "title": "Events"
+  },
+  {
+   "id": "fun",
+   "title": "Fun"
+  }
+ ],
+ "packs": [
+  {
+   "id": "desk",
+   "title": "Desk pack",
+   "description": "For the badge that lives by your monitor: a to-do list, a status board, a clock and a countdown.",
+   "added": "2026-11-03",
+   "templates": [
+    "todo",
+    "status-board",
+    "clock",
+    "note-to-self",
+    "countdown"
+   ]
+  },
+  {
+   "id": "shop",
+   "title": "Shop counter pack",
+   "description": "Open and closed signs, price tags, today's menu and guest Wi-Fi.",
+   "added": "2026-10-20",
+   "templates": [
+    "open-closed",
+    "price-tag",
+    "menu",
+    "wifi-qr"
+   ]
+  },
+  {
+   "id": "events",
+   "title": "Events pack",
+   "description": "Conference badges, table numbers, race bibs and tickets.",
+   "added": "2026-10-01",
+   "templates": [
+    "conference-badge",
+    "table-number",
+    "race-bib",
+    "event-ticket",
+    "countdown"
+   ]
+  }
+ ],
+ "popular": [
+  "name-badge",
+  "todo",
+  "clock",
+  "status-board",
+  "countdown",
+  "wifi-qr"
+ ],
+ "templates": [
+  {
+   "builtin": "name-badge",
+   "category": [
+    "work",
+    "events"
+   ],
+   "tags": [
+    "name",
+    "lanyard",
+    "conference",
+    "photo"
+   ],
+   "sample": {
+    "name": "Sam Ortiz",
+    "role": "Product designer",
+    "company": "Ink Tag"
+   },
+   "fills": "Your name, role, company, optional photo and QR"
+  },
+  {
+   "builtin": "status-sign",
+   "category": [
+    "work"
+   ],
+   "tags": [
+    "busy",
+    "free",
+    "door",
+    "desk"
+   ],
+   "sample": {
+    "status": "meeting"
+   },
+   "fills": "Pick a status, add small print"
+  },
+  {
+   "builtin": "contact-qr",
+   "category": [
+    "work"
+   ],
+   "tags": [
+    "business card",
+    "vcard",
+    "contact"
+   ],
+   "sample": {
+    "name": "Sam Ortiz",
+    "title": "Product designer",
+    "org": "Ink Tag",
+    "email": "sam@example.com"
+   },
+   "fills": "Your contact details"
+  },
+  {
+   "builtin": "event-ticket",
+   "category": [
+    "events"
+   ],
+   "tags": [
+    "ticket",
+    "seat",
+    "qr"
+   ],
+   "sample": {
+    "event": "Spring Gala",
+    "date": "12 March",
+    "time": "19:00",
+    "place": "City Hall",
+    "holder": "Sam Ortiz",
+    "seat": "B 14",
+    "code": "TICKET-0042"
+   },
+   "fills": "Event, date, seat and a code"
+  },
+  {
+   "builtin": "wifi-qr",
+   "category": [
+    "home"
+   ],
+   "tags": [
+    "wifi",
+    "guests",
+    "password",
+    "qr"
+   ],
+   "sample": {
+    "ssid": "Home",
+    "password": "correct horse",
+    "security": "WPA"
+   },
+   "fills": "Network name and password"
+  },
+  {
+   "builtin": "quote",
+   "category": [
+    "everyday",
+    "fun"
+   ],
+   "tags": [
+    "quote",
+    "words"
+   ],
+   "sample": {
+    "quote": "Make it simple, but significant.",
+    "author": "Don Draper"
+   },
+   "fills": "A quote and who said it"
+  },
+  {
+   "builtin": "text",
+   "category": [
+    "scratch"
+   ],
+   "tags": [],
+   "sample": {
+    "text": "Hello"
+   },
+   "fills": "Your words"
+  },
+  {
+   "builtin": "qr",
+   "category": [
+    "scratch"
+   ],
+   "tags": [],
+   "sample": {
+    "data": "inktag.dev"
+   },
+   "fills": "A link or text"
+  },
+  {
+   "builtin": "collage",
+   "category": [
+    "scratch"
+   ],
+   "tags": [],
+   "sample": {},
+   "fills": "Two to four photos"
+  },
+  {
+   "id": "todo",
+   "title": "To-do list",
+   "behaviour": "list",
+   "category": [
+    "work",
+    "everyday"
+   ],
+   "tags": [
+    "tasks",
+    "list",
+    "desk",
+    "tick"
+   ],
+   "description": "Tick items in the app and update the badge. Up to 10 items.",
+   "fills": "A title and the items",
+   "fields": [
+    {
+     "key": "title",
+     "label": "Title",
+     "kind": "text",
+     "default": "Today"
+    },
+    {
+     "key": "items",
+     "label": "Items",
+     "kind": "list",
+     "max": 10
+    },
+    {
+     "key": "done",
+     "label": "Done items",
+     "kind": "choice",
+     "default": "strike",
+     "options": [
+      {
+       "value": "strike",
+       "label": "Cross out"
+      },
+      {
+       "value": "hide",
+       "label": "Hide"
+      }
+     ]
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "title": "Today",
+    "items": "[x] Order booster parts\nReply to the factory\nTest firmware 0.4\nPhotos for the shop page"
+   },
+   "layouts": [
+    {
+     "name": "Plain",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.08,
+       "bold": true,
+       "h": 0.11
+      },
+      {
+       "t": "rule",
+       "color": "{{accent}}",
+       "h": 0.008
+      },
+      {
+       "t": "list",
+       "from": "items",
+       "check": true,
+       "done": "done",
+       "accent": "{{accent}}",
+       "size": 0.06
+      }
+     ]
+    },
+    {
+     "name": "Band",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.07,
+       "bold": true,
+       "upper": true,
+       "band": "{{accent}}",
+       "h": 0.13,
+       "align": "center"
+      },
+      {
+       "t": "list",
+       "from": "items",
+       "check": true,
+       "done": "done",
+       "accent": "{{accent}}",
+       "size": 0.06
+      }
+     ]
+    },
+    {
+     "name": "Big",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.05,
+       "bold": true,
+       "h": 0.07,
+       "color": "{{accent}}"
+      },
+      {
+       "t": "list",
+       "from": "items",
+       "check": true,
+       "done": "done",
+       "accent": "{{accent}}",
+       "size": 0.08
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "shopping",
+   "title": "Shopping list",
+   "behaviour": "list",
+   "category": [
+    "everyday",
+    "home"
+   ],
+   "tags": [
+    "groceries",
+    "list",
+    "tick"
+   ],
+   "description": "Cross things off in the app as you go.",
+   "fills": "The items",
+   "fields": [
+    {
+     "key": "title",
+     "label": "Title",
+     "kind": "text",
+     "default": "Shopping"
+    },
+    {
+     "key": "items",
+     "label": "Items",
+     "kind": "list",
+     "max": 14
+    },
+    {
+     "key": "done",
+     "label": "Bought items",
+     "kind": "choice",
+     "default": "strike",
+     "options": [
+      {
+       "value": "strike",
+       "label": "Cross out"
+      },
+      {
+       "value": "hide",
+       "label": "Hide"
+      }
+     ]
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "title": "Shopping",
+    "items": "Milk\nEggs\n[x] Bread\nTomatoes\nCoffee\nRice"
+   },
+   "layouts": [
+    {
+     "name": "Plain",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.07,
+       "bold": true,
+       "h": 0.1,
+       "color": "{{accent}}"
+      },
+      {
+       "t": "list",
+       "from": "items",
+       "check": true,
+       "done": "done",
+       "accent": "{{accent}}",
+       "size": 0.055
+      }
+     ]
+    },
+    {
+     "name": "Framed",
+     "frame": {
+      "style": "rounded",
+      "color": "{{accent}}"
+     },
+     "pad": 0.1,
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.06,
+       "bold": true,
+       "h": 0.09,
+       "align": "center"
+      },
+      {
+       "t": "list",
+       "from": "items",
+       "check": true,
+       "done": "done",
+       "accent": "{{accent}}",
+       "size": 0.05
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "status-board",
+   "title": "Status board",
+   "behaviour": "board",
+   "category": [
+    "work"
+   ],
+   "tags": [
+    "status",
+    "door",
+    "meeting",
+    "busy",
+    "desk"
+   ],
+   "description": "A set of ready statuses. Tap one and it goes straight to your badge.",
+   "fills": "Your statuses, each with its ink",
+   "board": {
+    "from": "statuses"
+   },
+   "fields": [
+    {
+     "key": "statuses",
+     "label": "Statuses (Label | ink)",
+     "kind": "list",
+     "max": 12
+    },
+    {
+     "key": "note",
+     "label": "Small print",
+     "kind": "text",
+     "placeholder": "Ext. 214"
+    }
+   ],
+   "sample": {
+    "statuses": "In a meeting | blue\nBack in 10 | yellow\nDo not disturb | red\nCome in | green\nLunch | black",
+    "status": "In a meeting",
+    "statusColor": "blue"
+   },
+   "layouts": [
+    {
+     "name": "Filled",
+     "background": "{{statusColor}}",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{status}}",
+       "size": 0.15,
+       "bold": true,
+       "upper": true,
+       "align": "center",
+       "lines": 3
+      },
+      {
+       "t": "text",
+       "text": "{{note}}",
+       "size": 0.04,
+       "align": "center",
+       "h": 0.1,
+       "if": "note"
+      }
+     ]
+    },
+    {
+     "name": "Outline",
+     "frame": {
+      "style": "line",
+      "color": "{{statusColor}}"
+     },
+     "pad": 0.12,
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{status}}",
+       "size": 0.14,
+       "bold": true,
+       "align": "center",
+       "lines": 3
+      },
+      {
+       "t": "rule",
+       "color": "{{statusColor}}",
+       "h": 0.02
+      },
+      {
+       "t": "text",
+       "text": "{{note}}",
+       "size": 0.04,
+       "align": "center",
+       "h": 0.1,
+       "if": "note"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "open-closed",
+   "title": "Open / closed",
+   "behaviour": "board",
+   "category": [
+    "home"
+   ],
+   "tags": [
+    "shop",
+    "hours",
+    "sign",
+    "door"
+   ],
+   "description": "Open, closed or back soon, with your hours underneath.",
+   "fills": "Shop name, hours and the signs",
+   "board": {
+    "from": "statuses"
+   },
+   "fields": [
+    {
+     "key": "shop",
+     "label": "Shop name",
+     "kind": "text"
+    },
+    {
+     "key": "hours",
+     "label": "Hours",
+     "kind": "multiline",
+     "placeholder": "Mon–Fri 9:00–18:00"
+    },
+    {
+     "key": "statuses",
+     "label": "Signs (Label | ink)",
+     "kind": "list",
+     "max": 8
+    }
+   ],
+   "sample": {
+    "shop": "Corner Books",
+    "hours": "Mon–Sat 9:00–19:00",
+    "statuses": "Open | green\nClosed | red\nBack soon | yellow",
+    "status": "Open",
+    "statusColor": "green"
+   },
+   "layouts": [
+    {
+     "name": "Sign",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{shop}}",
+       "size": 0.05,
+       "bold": true,
+       "align": "center",
+       "h": 0.08,
+       "if": "shop"
+      },
+      {
+       "t": "text",
+       "text": "{{status}}",
+       "size": 0.17,
+       "bold": true,
+       "upper": true,
+       "align": "center",
+       "band": "{{statusColor}}",
+       "flex": 2,
+       "lines": 2
+      },
+      {
+       "t": "text",
+       "text": "{{hours}}",
+       "size": 0.04,
+       "align": "center",
+       "flex": 1,
+       "lines": 3,
+       "if": "hours"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "note-to-self",
+   "title": "Note to self",
+   "behaviour": "form",
+   "category": [
+    "everyday"
+   ],
+   "tags": [
+    "note",
+    "reminder",
+    "words"
+   ],
+   "description": "One big line in a chosen ink.",
+   "fills": "A note",
+   "fields": [
+    {
+     "key": "note",
+     "label": "Note",
+     "kind": "multiline",
+     "required": true
+    },
+    {
+     "key": "ink",
+     "label": "Ink",
+     "kind": "choice",
+     "default": "black",
+     "options": [
+      {
+       "value": "black",
+       "label": "Black"
+      },
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "note": "Drink water. Stand up. Call mum."
+   },
+   "layouts": [
+    {
+     "name": "Big",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{note}}",
+       "size": 0.12,
+       "bold": true,
+       "color": "{{ink}}",
+       "align": "center"
+      }
+     ]
+    },
+    {
+     "name": "Inverted",
+     "background": "{{ink}}",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{note}}",
+       "size": 0.12,
+       "bold": true,
+       "align": "center"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "price-tag",
+   "title": "Price tag",
+   "behaviour": "form",
+   "category": [
+    "home"
+   ],
+   "tags": [
+    "shop",
+    "price",
+    "sale"
+   ],
+   "description": "Item and price, with an optional sale price in red.",
+   "fills": "Item, price, sale price",
+   "fields": [
+    {
+     "key": "item",
+     "label": "Item",
+     "kind": "text",
+     "required": true
+    },
+    {
+     "key": "detail",
+     "label": "Detail",
+     "kind": "text",
+     "placeholder": "Size, weight"
+    },
+    {
+     "key": "price",
+     "label": "Price",
+     "kind": "text",
+     "required": true
+    },
+    {
+     "key": "sale",
+     "label": "Sale price",
+     "kind": "text"
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "item": "Linen tote",
+    "detail": "Natural, 40 × 38 cm",
+    "price": "€24",
+    "sale": "€18"
+   },
+   "layouts": [
+    {
+     "name": "Tag",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{item}}",
+       "size": 0.08,
+       "bold": true,
+       "h": 0.14,
+       "lines": 2
+      },
+      {
+       "t": "text",
+       "text": "{{detail}}",
+       "size": 0.04,
+       "h": 0.07,
+       "if": "detail"
+      },
+      {
+       "t": "rule",
+       "h": 0.006
+      },
+      {
+       "t": "text",
+       "text": "{{price}}",
+       "size": 0.22,
+       "bold": true,
+       "align": "center",
+       "flex": 2,
+       "if": "!sale"
+      },
+      {
+       "t": "text",
+       "text": "Was {{price}}",
+       "size": 0.05,
+       "align": "center",
+       "h": 0.08,
+       "if": "sale"
+      },
+      {
+       "t": "text",
+       "text": "{{sale}}",
+       "size": 0.22,
+       "bold": true,
+       "align": "center",
+       "color": "{{accent}}",
+       "flex": 2,
+       "if": "sale"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "menu",
+   "title": "Menu of the day",
+   "behaviour": "form",
+   "category": [
+    "home"
+   ],
+   "tags": [
+    "food",
+    "cafe",
+    "restaurant",
+    "list"
+   ],
+   "description": "A few dishes and their prices.",
+   "fills": "A title and the dishes",
+   "fields": [
+    {
+     "key": "title",
+     "label": "Title",
+     "kind": "text",
+     "default": "Today's menu"
+    },
+    {
+     "key": "dishes",
+     "label": "Dishes",
+     "kind": "list",
+     "max": 8
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "dishes": "Lentil soup · 4.50\nFalafel wrap · 6.00\nOrange cake · 3.50"
+   },
+   "layouts": [
+    {
+     "name": "Menu",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.07,
+       "bold": true,
+       "align": "center",
+       "h": 0.12,
+       "color": "{{accent}}"
+      },
+      {
+       "t": "rule",
+       "h": 0.006
+      },
+      {
+       "t": "list",
+       "from": "dishes",
+       "size": 0.06
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "conference-badge",
+   "title": "Conference badge",
+   "behaviour": "form",
+   "category": [
+    "events",
+    "work"
+   ],
+   "tags": [
+    "name",
+    "conference",
+    "ask me"
+   ],
+   "description": "Name, company and what people can ask you about.",
+   "fills": "Name, company, a topic",
+   "fields": [
+    {
+     "key": "name",
+     "label": "Name",
+     "kind": "text",
+     "required": true
+    },
+    {
+     "key": "company",
+     "label": "Company",
+     "kind": "text"
+    },
+    {
+     "key": "ask",
+     "label": "Ask me about",
+     "kind": "text"
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "name": "Sam Ortiz",
+    "company": "Ink Tag",
+    "ask": "E-ink and tiny radios"
+   },
+   "layouts": [
+    {
+     "name": "Band",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{company}}",
+       "size": 0.05,
+       "bold": true,
+       "upper": true,
+       "band": "{{accent}}",
+       "h": 0.11,
+       "align": "center",
+       "if": "company"
+      },
+      {
+       "t": "text",
+       "text": "{{name}}",
+       "size": 0.14,
+       "bold": true,
+       "align": "center",
+       "flex": 2,
+       "lines": 2
+      },
+      {
+       "t": "text",
+       "text": "Ask me about",
+       "size": 0.045,
+       "align": "center",
+       "h": 0.05,
+       "if": "ask"
+      },
+      {
+       "t": "text",
+       "text": "{{ask}}",
+       "size": 0.06,
+       "bold": true,
+       "align": "center",
+       "color": "{{accent}}",
+       "flex": 1,
+       "lines": 2,
+       "if": "ask"
+      }
+     ]
+    },
+    {
+     "name": "Plain",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{name}}",
+       "size": 0.13,
+       "bold": true,
+       "flex": 2,
+       "lines": 2
+      },
+      {
+       "t": "text",
+       "text": "{{company}}",
+       "size": 0.06,
+       "h": 0.09,
+       "color": "{{accent}}",
+       "if": "company"
+      },
+      {
+       "t": "rule",
+       "h": 0.006,
+       "if": "ask"
+      },
+      {
+       "t": "text",
+       "text": "Ask me about {{ask}}",
+       "size": 0.05,
+       "flex": 1,
+       "lines": 3,
+       "if": "ask"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "table-number",
+   "title": "Table number",
+   "behaviour": "form",
+   "category": [
+    "events"
+   ],
+   "tags": [
+    "wedding",
+    "party",
+    "table",
+    "number"
+   ],
+   "description": "A big number with the guests' names.",
+   "fills": "The number and names",
+   "fields": [
+    {
+     "key": "number",
+     "label": "Table",
+     "kind": "text",
+     "required": true,
+     "default": "12"
+    },
+    {
+     "key": "names",
+     "label": "Guests",
+     "kind": "multiline"
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "number": "12",
+    "names": "Amira · Jon · Lea · Omar"
+   },
+   "layouts": [
+    {
+     "name": "Number",
+     "frame": {
+      "style": "double",
+      "color": "{{accent}}"
+     },
+     "pad": 0.14,
+     "blocks": [
+      {
+       "t": "text",
+       "text": "Table",
+       "size": 0.06,
+       "align": "center",
+       "h": 0.08
+      },
+      {
+       "t": "text",
+       "text": "{{number}}",
+       "size": 0.36,
+       "bold": true,
+       "align": "center",
+       "flex": 2,
+       "color": "{{accent}}"
+      },
+      {
+       "t": "text",
+       "text": "{{names}}",
+       "size": 0.04,
+       "align": "center",
+       "flex": 1,
+       "lines": 3,
+       "if": "names"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "door-sign",
+   "title": "Door sign",
+   "behaviour": "form",
+   "category": [
+    "home"
+   ],
+   "tags": [
+    "door",
+    "family",
+    "house"
+   ],
+   "description": "Your family name and house number.",
+   "fills": "Name and number",
+   "fields": [
+    {
+     "key": "name",
+     "label": "Name",
+     "kind": "text",
+     "required": true
+    },
+    {
+     "key": "number",
+     "label": "House number",
+     "kind": "text"
+    },
+    {
+     "key": "line",
+     "label": "Small print",
+     "kind": "text",
+     "placeholder": "No flyers, please"
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "name": "The Haddads",
+    "number": "27",
+    "line": "No flyers, please"
+   },
+   "layouts": [
+    {
+     "name": "Classic",
+     "frame": {
+      "style": "double",
+      "color": "black"
+     },
+     "pad": 0.11,
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{number}}",
+       "size": 0.2,
+       "bold": true,
+       "align": "center",
+       "flex": 2,
+       "color": "{{accent}}",
+       "if": "number"
+      },
+      {
+       "t": "text",
+       "text": "{{name}}",
+       "size": 0.09,
+       "bold": true,
+       "align": "center",
+       "flex": 1,
+       "lines": 2
+      },
+      {
+       "t": "text",
+       "text": "{{line}}",
+       "size": 0.035,
+       "align": "center",
+       "h": 0.06,
+       "if": "line"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "race-bib",
+   "title": "Race bib",
+   "behaviour": "form",
+   "category": [
+    "events",
+    "fun"
+   ],
+   "tags": [
+    "run",
+    "race",
+    "number",
+    "sport"
+   ],
+   "description": "Number and name for a run.",
+   "fills": "Event, number, name",
+   "fields": [
+    {
+     "key": "event",
+     "label": "Event",
+     "kind": "text"
+    },
+    {
+     "key": "number",
+     "label": "Number",
+     "kind": "text",
+     "required": true
+    },
+    {
+     "key": "name",
+     "label": "Name",
+     "kind": "text"
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "event": "City 10K",
+    "number": "1024",
+    "name": "Sam"
+   },
+   "layouts": [
+    {
+     "name": "Bib",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{event}}",
+       "size": 0.05,
+       "bold": true,
+       "upper": true,
+       "band": "{{accent}}",
+       "h": 0.1,
+       "align": "center",
+       "if": "event"
+      },
+      {
+       "t": "text",
+       "text": "{{number}}",
+       "size": 0.3,
+       "bold": true,
+       "align": "center",
+       "flex": 2
+      },
+      {
+       "t": "text",
+       "text": "{{name}}",
+       "size": 0.08,
+       "bold": true,
+       "align": "center",
+       "flex": 1,
+       "color": "{{accent}}",
+       "if": "name"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "clock",
+   "title": "Clock and date",
+   "behaviour": "live",
+   "category": [
+    "work",
+    "everyday"
+   ],
+   "tags": [
+    "time",
+    "clock",
+    "date"
+   ],
+   "description": "Time, day and date, with an optional line of text.",
+   "fills": "An optional line, how often to update",
+   "live": {
+    "rules": [
+     "hourly",
+     "quarter",
+     "morning"
+    ]
+   },
+   "fields": [
+    {
+     "key": "line",
+     "label": "Line of text",
+     "kind": "text",
+     "placeholder": "Sam's desk"
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "line": "Sam's desk"
+   },
+   "layouts": [
+    {
+     "name": "Clock",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{now:HH:mm}}",
+       "size": 0.24,
+       "bold": true,
+       "align": "center",
+       "flex": 2,
+       "if": "!dateOnly"
+      },
+      {
+       "t": "text",
+       "text": "{{now:dddd}}",
+       "size": 0.08,
+       "bold": true,
+       "align": "center",
+       "h": 0.11,
+       "color": "{{accent}}"
+      },
+      {
+       "t": "text",
+       "text": "{{now:D MMMM YYYY}}",
+       "size": 0.05,
+       "align": "center",
+       "h": 0.08
+      },
+      {
+       "t": "text",
+       "text": "{{line}}",
+       "size": 0.04,
+       "align": "center",
+       "h": 0.08,
+       "if": "line"
+      }
+     ]
+    },
+    {
+     "name": "Banded",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{now:dddd}}",
+       "size": 0.07,
+       "bold": true,
+       "upper": true,
+       "band": "{{accent}}",
+       "align": "center",
+       "h": 0.12
+      },
+      {
+       "t": "text",
+       "text": "{{now:HH:mm}}",
+       "size": 0.24,
+       "bold": true,
+       "align": "center",
+       "flex": 2,
+       "if": "!dateOnly"
+      },
+      {
+       "t": "text",
+       "text": "{{now:D MMMM}}",
+       "size": 0.06,
+       "align": "center",
+       "h": 0.09
+      },
+      {
+       "t": "text",
+       "text": "{{line}}",
+       "size": 0.04,
+       "align": "center",
+       "h": 0.08,
+       "if": "line"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "day-date",
+   "title": "Day and date",
+   "behaviour": "live",
+   "category": [
+    "everyday"
+   ],
+   "tags": [
+    "date",
+    "calendar",
+    "day"
+   ],
+   "description": "A big weekday with the date underneath, fresh every morning.",
+   "fills": "Nothing, just pick an ink",
+   "live": {
+    "rules": [
+     "morning"
+    ]
+   },
+   "fields": [
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {},
+   "layouts": [
+    {
+     "name": "Day",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{now:ddd}}",
+       "size": 0.2,
+       "bold": true,
+       "upper": true,
+       "align": "center",
+       "flex": 2,
+       "color": "{{accent}}"
+      },
+      {
+       "t": "text",
+       "text": "{{now:D}}",
+       "size": 0.2,
+       "bold": true,
+       "align": "center",
+       "flex": 2
+      },
+      {
+       "t": "text",
+       "text": "{{now:MMMM YYYY}}",
+       "size": 0.06,
+       "align": "center",
+       "h": 0.09
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "countdown",
+   "title": "Countdown",
+   "behaviour": "live",
+   "category": [
+    "events",
+    "everyday"
+   ],
+   "tags": [
+    "days",
+    "until",
+    "holiday",
+    "birthday"
+   ],
+   "description": "Days until a date you choose, updated every morning.",
+   "fills": "What you're counting down to, and the date",
+   "live": {
+    "rules": [
+     "morning"
+    ]
+   },
+   "fields": [
+    {
+     "key": "title",
+     "label": "Until",
+     "kind": "text",
+     "default": "Holiday",
+     "required": true
+    },
+    {
+     "key": "date",
+     "label": "Date (YYYY-MM-DD)",
+     "kind": "date",
+     "required": true
+    },
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {
+    "title": "Holiday",
+    "date": "2026-12-20"
+   },
+   "layouts": [
+    {
+     "name": "Big number",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{daysUntil:date}}",
+       "size": 0.34,
+       "bold": true,
+       "align": "center",
+       "flex": 2,
+       "color": "{{accent}}"
+      },
+      {
+       "t": "text",
+       "text": "days until",
+       "size": 0.05,
+       "align": "center",
+       "h": 0.07
+      },
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.09,
+       "bold": true,
+       "align": "center",
+       "flex": 1,
+       "lines": 2
+      }
+     ]
+    },
+    {
+     "name": "Band",
+     "blocks": [
+      {
+       "t": "text",
+       "text": "{{title}}",
+       "size": 0.07,
+       "bold": true,
+       "band": "{{accent}}",
+       "align": "center",
+       "h": 0.14,
+       "lines": 2
+      },
+      {
+       "t": "text",
+       "text": "{{daysUntil:date}}",
+       "size": 0.34,
+       "bold": true,
+       "align": "center",
+       "flex": 2
+      },
+      {
+       "t": "text",
+       "text": "days to go",
+       "size": 0.06,
+       "align": "center",
+       "h": 0.09
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "year-progress",
+   "title": "Year progress",
+   "behaviour": "live",
+   "category": [
+    "fun",
+    "everyday"
+   ],
+   "tags": [
+    "year",
+    "percent",
+    "progress"
+   ],
+   "description": "How much of the year has gone, as a bar and a percent.",
+   "fills": "Nothing, just pick an ink",
+   "live": {
+    "rules": [
+     "morning"
+    ]
+   },
+   "fields": [
+    {
+     "key": "accent",
+     "label": "Accent ink",
+     "kind": "choice",
+     "default": "red",
+     "options": [
+      {
+       "value": "red",
+       "label": "Red"
+      },
+      {
+       "value": "blue",
+       "label": "Blue"
+      },
+      {
+       "value": "green",
+       "label": "Green"
+      },
+      {
+       "value": "yellow",
+       "label": "Yellow"
+      },
+      {
+       "value": "black",
+       "label": "Black"
+      }
+     ]
+    }
+   ],
+   "sample": {},
+   "layouts": [
+    {
+     "name": "Bar",
+     "blocks": [
+      {
+       "t": "gap"
+      },
+      {
+       "t": "text",
+       "text": "{{now:YYYY}}",
+       "size": 0.16,
+       "bold": true,
+       "align": "center",
+       "h": 0.2
+      },
+      {
+       "t": "bar",
+       "value": "{{yearPercent}}",
+       "color": "{{accent}}",
+       "h": 0.08
+      },
+      {
+       "t": "text",
+       "text": "{{yearPercent}}% gone",
+       "size": 0.06,
+       "align": "center",
+       "h": 0.1
+      },
+      {
+       "t": "gap"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

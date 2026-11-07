@@ -19,7 +19,11 @@ export type FieldKind =
   | 'password'
   | 'photo'
   | 'choice'
-  | 'toggle';
+  | 'toggle'
+  /** Lines of text, one item each; "[x] " marks a ticked item (see list.ts). */
+  | 'list'
+  /** A day, as YYYY-MM-DD. */
+  | 'date';
 
 export interface Field {
   key: string;
@@ -30,6 +34,8 @@ export interface Field {
   options?: { value: string; label: string }[];
   /** The scene is still drawn without it, but the form should ask. */
   required?: boolean;
+  /** list: the most items the layout has room for. */
+  max?: number;
 }
 
 export type Values = Record<string, string | boolean | undefined>;
@@ -38,6 +44,8 @@ export interface BuildOptions {
   orientation?: Orientation;
   /** 0-based; see TemplateDef.layouts. */
   layout?: number;
+  /** For clocks and countdowns: the moment to draw. Now by default. */
+  now?: number;
 }
 
 export interface TemplateDef {
