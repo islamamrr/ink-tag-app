@@ -1,9 +1,10 @@
-// The photo editor: the badge's outline is the crop. Drag the picture to
-// move it, zoom with the buttons, then a dock for Text, Sticker, Frame and
-// Look (styles, sliders, and the Photo / On badge compare).
+// The photo editor, flooded in the photo's main ink: the badge's outline is
+// the crop. Drag the picture to move it, hold it to see the original, zoom
+// with the buttons, then a dock for Text, Sticker, Frame and Look (styles,
+// sliders, and the Original / On badge compare).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Text, useWindowDimensions, View } from 'react-native';
+import { PanResponder, Pressable, Text, useWindowDimensions, View } from 'react-native';
 
 import {
   type Adjustments,
@@ -23,10 +24,11 @@ import {
   toneFor,
 } from '../../core';
 import { pickPhotos } from '../../services/inkTag';
-import { Btn, ChipStrip, Chip, Col, Field, Note, Problem, Row, s, Screen, T } from '../kit';
+import { Btn, Chip, ChipStrip, Col, Field, IconBtn, InkSwatches, Label, Note, Problem, Row, Screen, T, useText } from '../kit';
 import { useNav } from '../nav';
-import { DesignPreview, usePrepared } from '../pictures';
+import { DesignPreview, useFloodOnce, usePrepared } from '../pictures';
 import { useServices } from '../services';
+import { INK, inkLine } from '../theme';
 
 type Dock = 'photo' | 'text' | 'sticker' | 'frame' | 'look';
 const INKS: ColorName[] = ['black', 'white', 'red', 'yellow', 'blue', 'green'];
@@ -77,6 +79,7 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
   const [adj, setAdj] = useState<Adjustments>(NO_ADJUSTMENTS);
   const [dock, setDock] = useState<Dock>('photo');
   const [compare, setCompare] = useState(false);
+  const [holding, setHolding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (p: Partial<EditState>) => setE((x) => ({ ...x, ...p }));
@@ -117,8 +120,9 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
   }, [e, style, adj, orientation]);
 
   const { prepared, last } = usePrepared(app, design, 250);
-  const show = dock === 'look' && compare ? 'photo' : 'badge';
-  const previewW = orientation === 'portrait' ? Math.min(240, screenW * 0.6) : screenW - 40;
+  const ink = useFloodOnce(e.photo, prepared);
+  const show = holding || (dock === 'look' && compare) ? 'photo' : 'badge';
+  const previewW = orientation === 'portrait' ? Math.min(240, screenW * 0.6) : screenW - 60;
 
   // Drag the picture under the badge outline.
   const geo = useRef({ zoom: e.zoom, width: previewW, start: e.crop });
@@ -150,20 +154,34 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
     <Screen
       onBack={nav.pop}
       back="Cancel"
-      title="Photo"
+      title={ink ? `Photo · ${inkLine(ink.shares)}` : 'Photo'}
+      flood={ink?.flood ?? 'blue'}
       footer={
-        <Btn kind="primary" label="Next: send" disabled={!design || busy} onPress={() => design && nav.push({ name: 'send', design })} />
+        <Btn kind="primary" label="Next: print it" disabled={!design || busy} onPress={() => design && nav.push({ name: 'send', design, flood: ink?.flood })} />
       }
     >
       {fromShare && <Note>From Photos{badge ? `, going to ${badge.name}` : ''}.</Note>}
       {error && <Problem title="Couldn't open that photo" onClose={() => setError(null)}>{error}</Problem>}
-      <View style={{ alignItems: 'center', gap: 6 }} {...pan.panHandlers}>
+      <View style={{ alignItems: 'center', gap: 14, paddingTop: 10 }} {...pan.panHandlers}>
         {design ? (
-          <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} show={show} />
+          <Pressable
+            onLongPress={() => setHolding(true)}
+            onPressOut={() => setHolding(false)}
+            delayLongPress={220}
+            accessibilityLabel="Your photo as the badge will show it. Hold to see the original, drag to move it."
+          >
+            <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} show={show} tilt={-1.5} shadow={INK.black} />
+          </Pressable>
         ) : (
-          <Btn label={busy ? 'Opening…' : 'Choose a photo'} busy={busy} onPress={choose} />
+          <View style={{ paddingVertical: 40 }}>
+            <Btn kind="primary" icon="camera" label={busy ? 'Opening…' : 'Choose a photo'} busy={busy} onPress={choose} />
+          </View>
         )}
-        {design && <Text style={s.small}>{show === 'photo' ? 'Photo, before the six colours' : 'Drag to move · how the six colours will look'}</Text>}
+        {design && (
+          <View style={{ backgroundColor: 'rgba(24,24,27,0.25)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Label>{show === 'photo' ? 'The original, before the six inks' : 'Hold to see the original · drag to move'}</Label>
+          </View>
+        )}
       </View>
 
       <ChipStrip>
@@ -173,27 +191,29 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
       </ChipStrip>
 
       {dock === 'photo' && (
-        <Col>
-          <Row wrap>
-            <Btn small label="Change photo" onPress={choose} busy={busy} />
-            <Btn small label="Fill" kind={e.fit === 'cover' ? 'primary' : 'secondary'} onPress={() => set({ fit: 'cover' })} />
-            <Btn small label="Fit" kind={e.fit === 'contain' ? 'primary' : 'secondary'} onPress={() => set({ fit: 'contain' })} />
-          </Row>
-          <Row wrap>
-            <Btn small label="Zoom −" onPress={() => set({ zoom: Math.max(1, e.zoom - 0.25) })} />
-            <Btn small label="Zoom +" onPress={() => set({ zoom: Math.min(4, e.zoom + 0.25) })} />
+        <Col gap={14}>
+          <Col gap={8}>
+            <Label>Fit</Label>
+            <Row gap={8}>
+              <Chip label="Fill the badge" on={e.fit === 'cover'} onPress={() => set({ fit: 'cover' })} />
+              <Chip label="Whole photo" on={e.fit === 'contain'} onPress={() => set({ fit: 'contain' })} />
+            </Row>
+          </Col>
+          <Stepper label="Zoom" value={`${Math.round(e.zoom * 100)}%`} onMinus={() => set({ zoom: Math.max(1, e.zoom - 0.25) })} onPlus={() => set({ zoom: Math.min(4, e.zoom + 0.25) })} />
+          <Row gap={10}>
+            <Btn small flex icon="camera" label="Change photo" onPress={choose} busy={busy} />
             <Btn small kind="ghost" label="Reset" onPress={() => set({ zoom: 1, crop: { x: 0.5, y: 0.5 }, fit: 'cover' })} />
           </Row>
         </Col>
       )}
       {dock === 'text' && (
-        <Col>
-          <Field label="Words on the picture" placeholder="Optional" value={e.caption} onChangeText={(caption) => set({ caption })} />
+        <Col gap={14}>
+          <Field label="Caption (optional)" placeholder="Words on the picture" value={e.caption} onChangeText={(caption) => set({ caption })} />
           <InkChips value={e.ink} onChange={(ink) => set({ ink })} />
         </Col>
       )}
       {dock === 'sticker' && (
-        <Col>
+        <Col gap={14}>
           <ChipStrip>
             <Chip label="None" on={!e.sticker} onPress={() => set({ sticker: null })} />
             {STICKER_NAMES.map((n) => (
@@ -204,7 +224,7 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
         </Col>
       )}
       {dock === 'frame' && (
-        <Col>
+        <Col gap={14}>
           <ChipStrip>
             {FRAMES.map((f) => (
               <Chip key={f} label={f === 'none' ? 'None' : f} on={e.frame === f} onPress={() => set({ frame: f })} />
@@ -234,40 +254,58 @@ function Look({
   setCompare: (c: boolean) => void;
 }) {
   return (
-    <Col gap={10}>
-      <Row>
-        <Chip label="On badge" on={!compare} onPress={() => setCompare(false)} />
-        <Chip label="Photo" on={compare} onPress={() => setCompare(true)} />
-      </Row>
-      <ChipStrip>
-        {STYLE_NAMES.map((n) => (
-          <Chip key={n} label={STYLES[n].label} on={style === n} onPress={() => setStyle(n)} />
-        ))}
-      </ChipStrip>
-      <T muted>{STYLES[style].description}</T>
-      {(['brightness', 'contrast', 'colour'] as const).map((k) => (
-        <Row key={k}>
-          <Text style={[s.rowLabel, { flex: 1 }]}>
-            {k === 'colour' ? 'Colour boost' : k[0].toUpperCase() + k.slice(1)} {adj[k] > 0 ? '+' : ''}
-            {adj[k]}
-          </Text>
-          <Btn small label="−" onPress={() => setAdj({ ...adj, [k]: Math.max(-50, adj[k] - 10) })} />
-          <Btn small label="+" onPress={() => setAdj({ ...adj, [k]: Math.min(50, adj[k] + 10) })} />
+    <Col gap={14}>
+      <Col gap={8}>
+        <Label>Dots</Label>
+        <Row gap={8} wrap>
+          {STYLE_NAMES.map((n) => (
+            <Chip key={n} label={STYLES[n].label} on={style === n} onPress={() => setStyle(n)} />
+          ))}
         </Row>
+        <T muted size={17}>
+          {STYLES[style].description}
+        </T>
+      </Col>
+      {(['colour', 'brightness', 'contrast'] as const).map((k) => (
+        <Stepper
+          key={k}
+          label={k === 'colour' ? 'Ink boost' : k}
+          value={`${adj[k] > 0 ? '+' : ''}${adj[k]}`}
+          onMinus={() => setAdj({ ...adj, [k]: Math.max(-50, adj[k] - 10) })}
+          onPlus={() => setAdj({ ...adj, [k]: Math.min(50, adj[k] + 10) })}
+        />
       ))}
+      <Col gap={8}>
+        <Label>Show</Label>
+        <Row gap={8}>
+          <Chip label="On badge" on={!compare} onPress={() => setCompare(false)} />
+          <Chip label="Original" on={compare} onPress={() => setCompare(true)} />
+        </Row>
+      </Col>
     </Col>
+  );
+}
+
+/** A label, its value, and − / + buttons. */
+function Stepper({ label, value, onMinus, onPlus }: { label: string; value: string; onMinus: () => void; onPlus: () => void }) {
+  const tx = useText();
+  return (
+    <Row gap={10}>
+      <View style={{ flex: 1 }}>
+        <Label>{label}</Label>
+      </View>
+      <Text style={[tx.big, { fontSize: 18, lineHeight: 24, minWidth: 64, textAlign: 'center' }]}>{value}</Text>
+      <IconBtn icon="minus" tone="card" label={`Less ${label.toLowerCase()}`} onPress={onMinus} />
+      <IconBtn icon="plus" tone="card" label={`More ${label.toLowerCase()}`} onPress={onPlus} />
+    </Row>
   );
 }
 
 function InkChips({ value, onChange }: { value: ColorName; onChange: (c: ColorName) => void }) {
   return (
-    <Col gap={6}>
-      <Text style={s.small}>Ink</Text>
-      <ChipStrip>
-        {INKS.map((c) => (
-          <Chip key={c} label={c} on={value === c} onPress={() => onChange(c)} />
-        ))}
-      </ChipStrip>
+    <Col gap={8}>
+      <Label>Ink</Label>
+      <InkSwatches options={INKS} value={value} onChange={onChange} />
     </Col>
   );
 }

@@ -7,8 +7,10 @@ import { Animated, PanResponder, Text, View } from 'react-native';
 
 import { type Design, type DisplayOutcome, type LibraryItem, type Prepared, type SendProgress, type SendStage, userMessage } from '../core';
 import { appLog } from '../services/app';
-import { Bar, Col, G, Row, s, T } from './kit';
+import { Bar, Col, Row, useSurface, useText } from './kit';
+import { Icon, InkDot } from './print';
 import { useServices } from './services';
+import { FONT, INK } from './theme';
 
 export type Phase = 'idle' | 'sending' | 'drawing' | 'done' | 'failed';
 
@@ -103,17 +105,20 @@ const STEPS: { label: string; stages: SendStage[] }[] = [
 ];
 
 export function Stages({ p }: { p: SendProgress | null }) {
+  const tx = useText();
   const at = p ? STEPS.findIndex((x) => x.stages.includes(p.stage)) : 0;
   const done = p?.stage === 'done';
   return (
-    <Col gap={6}>
+    <Col gap={8}>
       {STEPS.map((x, i) => {
-        const state = done || i < at ? '✓' : i === at ? '●' : '○';
+        const state = done || i < at ? 'done' : i === at ? 'now' : 'later';
         const label = i === 2 && p?.stage === 'sending' && p.attempt > 1 ? 'Checking again' : x.label;
         return (
-          <Row key={x.label}>
-            <Text style={[s.t, { width: 22, color: state === '○' ? G.mid : G.ink }]}>{state}</Text>
-            <Text style={[s.t, state === '●' && { fontWeight: '700', color: G.ink }, state === '○' && s.muted]}>{label}</Text>
+          <Row key={x.label} gap={10}>
+            <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: tx.sf.fg, alignItems: 'center', justifyContent: 'center', backgroundColor: state === 'done' ? tx.sf.fg : 'transparent', opacity: state === 'later' ? 0.5 : 1 }}>
+              {state === 'done' ? <Icon name="check" size={16} color={tx.sf.ground} stroke={3.2} /> : state === 'now' ? <InkDot color={tx.sf.fg} size={10} /> : null}
+            </View>
+            <Text style={[state === 'now' ? tx.strong : tx.body, state === 'later' && { opacity: 0.6 }]}>{label}</Text>
           </Row>
         );
       })}
@@ -127,22 +132,24 @@ export function SendLine({ sender, badgeName }: { sender: Sender; badgeName: str
   if (sender.phase === 'idle') return null;
   if (sender.phase === 'failed')
     return (
-      <View style={s.problem}>
-        <T bold>Couldn&apos;t update {badgeName}</T>
-        <T muted>{sender.error}</T>
-        {sender.oldPictureKept && <T muted>Nothing changed on its screen.</T>}
+      <View style={{ borderWidth: 2, borderColor: INK.black, borderStyle: 'dashed', backgroundColor: INK.white, padding: 12, gap: 4 }} accessibilityRole="alert">
+        <Text style={{ fontFamily: FONT.black, fontSize: 19, color: INK.black }}>Couldn&apos;t update {badgeName}</Text>
+        <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: INK.muted }}>
+          {sender.error}
+          {sender.oldPictureKept ? ' Nothing changed on its screen.' : ''}
+        </Text>
       </View>
     );
   return (
-    <View style={s.note}>
+    <View style={{ borderWidth: 2, borderColor: INK.black, backgroundColor: INK.yellow, padding: 12 }} accessibilityLiveRegion="polite">
       <Col gap={6} style={{ flex: 1 }}>
-        <T bold>
+        <Text style={{ fontFamily: FONT.black, fontSize: 19, color: INK.black }}>
           {sender.phase === 'done'
             ? `On ${badgeName}.`
             : sender.phase === 'drawing'
               ? `Drawing on ${badgeName}, safe to walk away`
               : `${p?.label ?? 'Sending'}${p?.secondsLeft ? ` · about ${p.secondsLeft} s left` : ''}`}
-        </T>
+        </Text>
         {sender.phase !== 'done' && <Bar value={p?.fraction ?? 0} />}
       </Col>
     </View>
@@ -151,7 +158,8 @@ export function SendLine({ sender, badgeName }: { sender: Sender; badgeName: str
 
 // ------------------------------------------------------------------ slide to ink
 
-export function SlideToInk({ label = 'Slide to ink', onDone, disabled }: { label?: string; onDone: () => void; disabled?: boolean }) {
+export function SlideToInk({ label = 'Slide to print', onDone, disabled }: { label?: string; onDone: () => void; disabled?: boolean }) {
+  const sf = useSurface();
   const [w, setW] = useState(0);
   const [x] = useState(() => new Animated.Value(0));
   const knob = 52;
@@ -189,33 +197,40 @@ export function SlideToInk({ label = 'Slide to ink', onDone, disabled }: { label
       accessibilityLabel={label}
       accessibilityActions={[{ name: 'activate', label }]}
       onAccessibilityAction={() => !disabled && onDone()}
-      style={{
-        height: 60,
-        borderRadius: 30,
-        borderWidth: 2,
-        borderColor: G.ink,
-        backgroundColor: disabled ? G.soft : G.pale,
-        justifyContent: 'center',
-        opacity: disabled ? 0.5 : 1,
-      }}
+      style={{ opacity: disabled ? 0.5 : 1 }}
     >
-      <Text style={[s.btnText, { textAlign: 'center' }]}>{label}</Text>
-      <Animated.View
-        {...pan.panHandlers}
+      <View style={{ position: 'absolute', left: 4, top: 3, right: -4, bottom: -3, borderRadius: 31, backgroundColor: sf.flood ? sf.second : INK.black }} />
+      <View
         style={{
-          position: 'absolute',
-          left: 3,
-          width: knob,
-          height: knob,
-          borderRadius: knob / 2,
-          backgroundColor: G.ink,
-          alignItems: 'center',
+          height: 62,
+          borderRadius: 31,
+          borderWidth: 2,
+          borderColor: INK.black,
+          backgroundColor: sf.flood ? sf.card : INK.white,
           justifyContent: 'center',
-          transform: [{ translateX: x }],
+          overflow: 'hidden',
         }}
       >
-        <Text style={{ color: G.white, fontSize: 22, fontWeight: '700' }}>→</Text>
-      </Animated.View>
+        <Text style={{ fontFamily: FONT.black, fontSize: 23, color: INK.black, textAlign: 'center', paddingLeft: 40, includeFontPadding: false }}>{label}</Text>
+        <Animated.View
+          {...pan.panHandlers}
+          style={{
+            position: 'absolute',
+            left: 3,
+            width: knob,
+            height: knob,
+            borderRadius: knob / 2,
+            backgroundColor: INK.blue,
+            borderWidth: 2,
+            borderColor: INK.black,
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: [{ translateX: x }],
+          }}
+        >
+          <Icon name="arrow" size={24} color={INK.paper} stroke={2.8} />
+        </Animated.View>
+      </View>
     </View>
   );
 }

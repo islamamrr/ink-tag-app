@@ -1,18 +1,21 @@
-// Send: last look, "to: My badge", slide to ink, the four stages, the
+// Send: last look, "to: My badge", slide to print, the four stages, the
 // drawing wipe once it's safe to walk away, then back to the Gallery. A
-// failure says what the badge shows now and that the work isn't lost.
+// failure says what the badge shows now and that the work isn't lost. It
+// keeps the flood ink of the screen it came from.
 
 import { useEffect, useState } from 'react';
-import { Animated, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, useWindowDimensions, View } from 'react-native';
 
 import type { Design } from '../../core';
-import { Bar, Btn, Chip, Col, G, H, ListRow, Problem, Row, s, Screen, Sheet, T } from '../kit';
+import { Bar, Btn, Chip, Col, H, Label, ListRow, Problem, Row, Screen, Sheet, T } from '../kit';
 import { useNav } from '../nav';
 import { DesignPreview, ItemThumb, usePrepared } from '../pictures';
+import { Icon } from '../print';
 import { SlideToInk, Stages, useSender } from '../sending';
 import { useServices } from '../services';
+import { type Flood, INK } from '../theme';
 
-export function SendScreen({ design, itemId }: { design?: Design; itemId?: string }) {
+export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?: string; flood?: Flood }) {
   const { app, badge } = useServices();
   const nav = useNav();
   const { width } = useWindowDimensions();
@@ -24,7 +27,7 @@ export function SendScreen({ design, itemId }: { design?: Design; itemId?: strin
   const target = targetId ? app.badges.get(targetId) : undefined;
   const item = itemId ? app.library.get(itemId) : undefined;
   const orientation = design?.scene.orientation ?? item?.scene.orientation ?? target?.orientation ?? 'portrait';
-  const previewW = orientation === 'portrait' ? Math.min(260, width * 0.62) : width - 40;
+  const previewW = orientation === 'portrait' ? Math.min(250, width * 0.6) : width - 70;
   const badges = app.badges.list();
 
   // Sideways design, upright badge (or the other way): say so before sending.
@@ -52,9 +55,9 @@ export function SendScreen({ design, itemId }: { design?: Design; itemId?: strin
 
   const p = sender.progress;
   const picture = itemId ? (
-    <ItemThumb app={app} itemId={itemId} width={previewW} orientation={orientation} />
+    <ItemThumb app={app} itemId={itemId} width={previewW} orientation={orientation} tilt={-2} shadow={INK.black} />
   ) : (
-    <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} />
+    <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} tilt={-2} shadow={INK.black} />
   );
 
   if (sender.phase === 'idle')
@@ -62,7 +65,9 @@ export function SendScreen({ design, itemId }: { design?: Design; itemId?: strin
       <Screen
         onBack={nav.pop}
         back="Back to edit"
-        right={target ? <Chip label={`to: ${target.name} ▾`} onPress={() => setPicking(true)} /> : undefined}
+        title="Last look"
+        flood={flood}
+        right={target ? <Chip label={`To ${target.name}`} on onPress={() => setPicking(true)} /> : undefined}
         footer={
           target ? (
             <SlideToInk onDone={go} disabled={!itemId && !prepared} />
@@ -71,9 +76,9 @@ export function SendScreen({ design, itemId }: { design?: Design; itemId?: strin
           )
         }
       >
-        <View style={{ alignItems: 'center' }}>{picture}</View>
+        <View style={{ alignItems: 'center', paddingTop: 16, paddingBottom: 8 }}>{picture}</View>
         <T center muted>
-          This is how the six colours will look. It&apos;s saved to your Gallery when it&apos;s sent.
+          This is how the six inks will look. It&apos;s saved to your Gallery when it&apos;s sent.
         </T>
         {mismatch && (
           <Problem title={`${target.name} hangs ${target.orientation === 'portrait' ? 'upright' : 'sideways'}`}>
@@ -86,7 +91,7 @@ export function SendScreen({ design, itemId }: { design?: Design; itemId?: strin
               key={b.id}
               label={b.name}
               detail={b.kind === 'demo' ? 'Demo badge' : app.connection().badgeId === b.id ? 'Connected' : 'Saved'}
-              right={<Text style={s.t}>{b.id === targetId ? '✓' : ''}</Text>}
+              right={b.id === targetId ? <Icon name="check" size={20} color={INK.blue} stroke={3} /> : undefined}
               onPress={() => {
                 setTargetId(b.id);
                 setPicking(false);
@@ -108,8 +113,8 @@ export function SendScreen({ design, itemId }: { design?: Design; itemId?: strin
 
   if (sender.phase === 'failed')
     return (
-      <Screen title={target?.name}>
-        <View style={{ alignItems: 'center', opacity: 0.6 }}>{picture}</View>
+      <Screen title={target?.name} flood={flood}>
+        <View style={{ alignItems: 'center', opacity: 0.6, paddingTop: 10, paddingBottom: 6 }}>{picture}</View>
         <Problem title={sender.oldPictureKept ? 'Not sent' : "The badge didn't finish drawing"}>
           <Col gap={4}>
             <T muted>{sender.oldPictureKept ? 'Nothing changed on its screen. It still shows the last picture.' : sender.error}</T>
@@ -132,25 +137,32 @@ export function SendScreen({ design, itemId }: { design?: Design; itemId?: strin
 
   const drawing = sender.phase === 'drawing' || sender.phase === 'done';
   return (
-    <Screen title={drawing ? `Drawing on ${target?.name}` : `Sending to ${target?.name}`}>
-      <View style={{ alignItems: 'center' }}>
+    <Screen flood={flood}>
+      <Label center>{drawing ? `Drawing on ${target?.name}` : `Sending to ${target?.name}`}</Label>
+      <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 6 }}>
         <View>
           {picture}
           {drawing && <Wipe seconds={p?.secondsLeft ?? 20} done={sender.phase === 'done'} />}
         </View>
       </View>
       {drawing ? (
-        <Col>
-          <H size={20}>{sender.phase === 'done' ? 'On your badge.' : 'Safe to walk away'}</H>
+        <Col gap={10}>
+          <H size={30}>{sender.phase === 'done' ? 'On your badge.' : 'Safe to walk away'}</H>
           <T>Sent and checked. The badge is drawing it now.</T>
           <T muted>The screen flashes a few times. That&apos;s normal for this kind of screen and takes about 20 seconds. You can close the app.</T>
           <Btn label="Back to Gallery" onPress={finish} />
         </Col>
       ) : (
-        <Col gap={12}>
-          <Row>
-            <H size={28}>{Math.round((p?.fraction ?? 0) * 100)}%</H>
-            {p?.secondsLeft ? <T muted>about {p.secondsLeft} s left</T> : null}
+        <Col gap={14}>
+          <Row gap={12} style={{ alignItems: 'flex-end' }}>
+            <H size={48} display>
+              {Math.round((p?.fraction ?? 0) * 100)}%
+            </H>
+            {p?.secondsLeft ? (
+              <View style={{ paddingBottom: 10 }}>
+                <T muted>about {p.secondsLeft} s left</T>
+              </View>
+            ) : null}
           </Row>
           <Bar value={p?.fraction ?? 0} />
           <Stages p={p} />
@@ -177,8 +189,8 @@ function Wipe({ seconds, done }: { seconds: number; done: boolean }) {
   const top = y.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   return (
     <>
-      <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top, bottom: 0, backgroundColor: 'rgba(255,255,255,0.55)' }} />
-      <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top, height: 3, backgroundColor: G.ink }} />
+      <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 2, right: 2, top, bottom: 2, backgroundColor: 'rgba(243,239,231,0.6)' }} />
+      <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top, height: 4, backgroundColor: INK.black }} />
     </>
   );
 }
