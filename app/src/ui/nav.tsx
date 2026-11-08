@@ -1,4 +1,5 @@
-// Four tabs, each with its own stack of screens, and Android's back button.
+// Four tabs (Print, Gallery, My badge, Settings), each with its own stack of
+// screens, and Android's back button. The Print tab is 'templates' in code.
 // Small on purpose: no navigation library (and no new native code) for the
 // wireframe build. Moving to Expo Router later means turning each Route
 // below into a file under src/app/.
@@ -7,6 +8,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { BackHandler } from 'react-native';
 
 import type { Design, PictureStyle, Scene } from '../core';
+import type { Flood } from './theme';
 
 export type Tab = 'templates' | 'gallery' | 'badge' | 'settings';
 
@@ -20,7 +22,7 @@ export type Route =
   | { name: 'board'; id: string }
   | { name: 'live'; id: string }
   | { name: 'photo'; photo?: string; scene?: Scene; style?: PictureStyle; fromShare?: boolean }
-  | { name: 'send'; design?: Design; itemId?: string }
+  | { name: 'send'; design?: Design; itemId?: string; flood?: Flood }
   | { name: 'item'; id: string }
   | { name: 'badgePage'; id: string }
   | { name: 'setup' }

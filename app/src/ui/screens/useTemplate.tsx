@@ -3,6 +3,7 @@
 //   list  tick items, "Update my badge" resends in place
 //   board tap one of the ready pictures and it's sent straight away
 //   live  pick how often, the phone keeps the badge up to date
+// Each is flooded in the template's main ink, with its print big and tilted.
 
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, useWindowDimensions, View } from 'react-native';
@@ -10,15 +11,18 @@ import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { type CatalogEntry, type Design, LIVE_RULES, type LiveRule, parseList, type PictureStyle, STYLE_NAMES, STYLES, type Values } from '../../core';
 import { templateDesign } from '../../services/app';
 import { FieldEditor } from '../fields';
-import { Btn, Card, Chip, Chips, Col, G, Label, Problem, Row, s, Screen, T } from '../kit';
+import { Btn, Card, Chip, Chips, Col, Label, Problem, Row, Screen, T, useSurface, useText } from '../kit';
 import { useNav } from '../nav';
-import { DesignPreview, usePrepared } from '../pictures';
+import { DesignPreview, usePrepared, useTemplateInk } from '../pictures';
+import { Icon } from '../print';
 import { SendLine, useSender } from '../sending';
 import { clock, useServices } from '../services';
+import { BADGE_INK, INK } from '../theme';
 
 function useTemplate(id: string, initial?: { values?: Values; layout?: number }) {
-  const { catalog, state } = useServices();
+  const { app, catalog, state } = useServices();
   const e = catalog.get(id);
+  const { flood } = useTemplateInk(app, e);
   const draft = state.draft(id);
   const [values, setValues] = useState<Values>(() => initial?.values ?? draft?.values ?? { ...(e?.sample ?? {}) });
   const [layout, setLayout] = useState(() => initial?.layout ?? draft?.layout ?? 0);
@@ -28,7 +32,16 @@ function useTemplate(id: string, initial?: { values?: Values; layout?: number })
     const t = setTimeout(() => void state.saveDraft(id, values, layout), 400);
     return () => clearTimeout(t);
   }, [e, id, values, layout, state]);
-  return { e, values, setValues, layout, setLayout };
+  return { e, values, setValues, layout, setLayout, flood };
+}
+
+/** The print, big and a little crooked. */
+function Print({ prepared, width, orientation }: { prepared: Parameters<typeof DesignPreview>[0]['prepared']; width: number; orientation: 'portrait' | 'landscape' }) {
+  return (
+    <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 6 }}>
+      <DesignPreview prepared={prepared} width={width} orientation={orientation} tilt={-2} shadow={INK.black} />
+    </View>
+  );
 }
 
 const notToday = (t: number) => new Date(t).toDateString() !== new Date().toDateString();
@@ -44,9 +57,9 @@ function Gone({ onBack }: { onBack: () => void }) {
 function LayoutChips({ e, layout, setLayout }: { e: CatalogEntry; layout: number; setLayout: (n: number) => void }) {
   if (e.def.layouts < 2) return null;
   return (
-    <Col gap={6}>
-      <Text style={s.small}>Layout</Text>
-      <Row>
+    <Col gap={8}>
+      <Label>Layout</Label>
+      <Row gap={8}>
         {Array.from({ length: e.def.layouts }, (_, i) => (
           <Chip key={i} label={String(i + 1)} on={layout === i} onPress={() => setLayout(i)} />
         ))}
@@ -69,7 +82,7 @@ function usePreviewSize() {
   const { width } = useWindowDimensions();
   const { badge } = useServices();
   const o = badge?.orientation ?? 'portrait';
-  return { orientation: o, width: o === 'portrait' ? Math.min(200, width * 0.5) : Math.min(320, width - 40) };
+  return { orientation: o, width: o === 'portrait' ? Math.min(210, width * 0.52) : Math.min(330, width - 70) };
 }
 
 // ------------------------------------------------------------------ form
@@ -77,7 +90,7 @@ function usePreviewSize() {
 export function FormScreen({ id, values: v0, layout: l0 }: { id: string; values?: Values; layout?: number }) {
   const { app, badge } = useServices();
   const nav = useNav();
-  const { e, values, setValues, layout, setLayout } = useTemplate(id, { values: v0, layout: l0 });
+  const { e, values, setValues, layout, setLayout, flood } = useTemplate(id, { values: v0, layout: l0 });
   const [style, setStyle] = useState<PictureStyle>('poster');
   const [busy, setBusy] = useState(false);
   const { orientation, width } = usePreviewSize();
@@ -91,23 +104,22 @@ export function FormScreen({ id, values: v0, layout: l0 }: { id: string; values?
       onBack={nav.pop}
       back="Cancel"
       title={e.def.title}
+      flood={flood}
       footer={
         <>
           {missing.length > 0 && <T muted>Still needed: {missing.join(', ')}</T>}
-          <Btn kind="primary" label="Next" disabled={busy || missing.length > 0} onPress={() => nav.push({ name: 'send', design })} />
+          <Btn kind="primary" label="Next: print it" disabled={busy || missing.length > 0} onPress={() => nav.push({ name: 'send', design, flood })} />
         </>
       }
     >
-      <View style={{ alignItems: 'center' }}>
-        <DesignPreview prepared={prepared ?? last} width={width} orientation={orientation} />
-      </View>
+      <Print prepared={prepared ?? last} width={width} orientation={orientation} />
       <LayoutChips e={e} layout={layout} setLayout={setLayout} />
       {e.def.fields.map((f) => (
         <FieldEditor key={f.key} f={f} values={values} onChange={setValues} onBusy={setBusy} />
       ))}
       {hasPhoto && (
-        <Col gap={6}>
-          <Text style={s.small}>Look</Text>
+        <Col gap={8}>
+          <Label>Dots</Label>
           <Chips options={STYLE_NAMES.map((n) => ({ value: n, label: STYLES[n].label }))} value={style} onChange={setStyle} />
           <T muted>{STYLES[style].description}</T>
         </Col>
@@ -122,7 +134,7 @@ export function FormScreen({ id, values: v0, layout: l0 }: { id: string; values?
 export function ListScreen({ id }: { id: string }) {
   const { app, badge } = useServices();
   const nav = useNav();
-  const { e, values, setValues, layout, setLayout } = useTemplate(id);
+  const { e, values, setValues, layout, setLayout, flood } = useTemplate(id);
   const sender = useSender();
   const [showStyle, setShowStyle] = useState(false);
   const { orientation, width } = usePreviewSize();
@@ -138,11 +150,12 @@ export function ListScreen({ id }: { id: string }) {
       onBack={nav.pop}
       back="Back"
       title={e.def.title}
+      flood={flood}
       footer={
         badge ? (
           <>
             <SendLine sender={sender} badgeName={badge.name} />
-            <Btn kind="primary" label={busy ? 'Updating…' : `Update ${badge.name}`} busy={busy} onPress={() => sender.send(badge.id, design, prepared)} />
+            <Btn kind="primary" label={busy ? 'Printing…' : `Print to ${badge.name}`} busy={busy} onPress={() => sender.send(badge.id, design, prepared)} />
           </>
         ) : (
           <NeedBadge />
@@ -163,9 +176,7 @@ export function ListScreen({ id }: { id: string }) {
         </Col>
       )}
       <Label>On the badge it will look like</Label>
-      <View style={{ alignItems: 'center' }}>
-        <DesignPreview prepared={prepared ?? last} width={width} orientation={orientation} />
-      </View>
+      <Print prepared={prepared ?? last} width={width} orientation={orientation} />
     </Screen>
   );
 }
@@ -175,8 +186,9 @@ export function ListScreen({ id }: { id: string }) {
 export function BoardScreen({ id }: { id: string }) {
   const { app, badge, state } = useServices();
   const nav = useNav();
-  const { e, values, setValues, layout, setLayout } = useTemplate(id);
+  const { e, values, setValues, layout, setLayout, flood } = useTemplate(id);
   const sender = useSender();
+  const tx = useText();
   const [editing, setEditing] = useState(false);
   const [sendingLabel, setSendingLabel] = useState<string | null>(null);
   const { orientation, width } = usePreviewSize();
@@ -202,6 +214,7 @@ export function BoardScreen({ id }: { id: string }) {
       onBack={nav.pop}
       back="Back"
       title={e.def.title}
+      flood={flood}
       right={<Btn small label={editing ? 'Done' : 'Edit'} onPress={() => setEditing((x) => !x)} />}
       footer={
         badge ? (
@@ -221,14 +234,12 @@ export function BoardScreen({ id }: { id: string }) {
           ))}
           <T muted>Inks: black, red, yellow, green, blue. Write “Label | blue”.</T>
           <LayoutChips e={e} layout={layout} setLayout={setLayout} />
-          <View style={{ alignItems: 'center' }}>
-            <DesignPreview prepared={prepared ?? last} width={width} orientation={orientation} />
-          </View>
+          <Print prepared={prepared ?? last} width={width} orientation={orientation} />
         </>
       ) : (
         <>
           <T muted>Tap one to put it on your badge.</T>
-          <View style={{ gap: 10 }}>
+          <View style={{ gap: 14 }}>
             {options.map((o) => {
               const on = shown?.label === o.text;
               const busy = sender.phase === 'sending' && sendingLabel === o.text;
@@ -238,14 +249,25 @@ export function BoardScreen({ id }: { id: string }) {
                   onPress={() => tap(o.text, o.color)}
                   disabled={!badge || sender.phase === 'sending'}
                   accessibilityRole="button"
-                  style={({ pressed }) => [
-                    { minHeight: 64, borderWidth: on ? 3 : 2, borderColor: G.ink, borderRadius: 14, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: on ? G.chipOn : G.white },
-                    pressed && { opacity: 0.7 },
-                    sender.phase === 'sending' && !busy && { opacity: 0.4 },
-                  ]}
+                  accessibilityLabel={`${o.text}${on ? ', on the badge now' : ''}`}
+                  style={[sender.phase === 'sending' && !busy && { opacity: 0.45 }]}
                 >
-                  <Text style={[s.rowLabel, { flex: 1, fontSize: 18, fontWeight: '700' }]}>{o.text}</Text>
-                  <Text style={s.small}>{busy ? 'Sending…' : on ? 'On the badge' : (o.color ?? 'black')}</Text>
+                  {({ pressed }) => (
+                    <View>
+                      <View style={{ position: 'absolute', left: 4, top: 4, right: -4, bottom: -4, backgroundColor: INK.black }} />
+                      <View
+                        style={[
+                          { minHeight: 68, borderWidth: 2, borderColor: INK.black, paddingRight: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: on ? INK.yellow : INK.paper },
+                          pressed && { transform: [{ translateX: 3 }, { translateY: 3 }] },
+                        ]}
+                      >
+                        <View style={{ width: 18, alignSelf: 'stretch', backgroundColor: BADGE_INK[o.color ?? 'black'] ?? INK.black, borderRightWidth: 2, borderColor: INK.black }} />
+                        <Text style={[tx.strong, { flex: 1, fontSize: 22, color: INK.black }]}>{o.text}</Text>
+                        <Text style={[tx.meta, { color: INK.black }]}>{busy ? 'SENDING…' : on ? 'ON BADGE' : ''}</Text>
+                        {on && !busy ? <Icon name="check" size={20} stroke={3} /> : null}
+                      </View>
+                    </View>
+                  )}
                 </Pressable>
               );
             })}
@@ -262,7 +284,7 @@ export function BoardScreen({ id }: { id: string }) {
 export function LiveScreen({ id }: { id: string }) {
   const { app, badge, live } = useServices();
   const nav = useNav();
-  const { e, values, setValues, layout, setLayout } = useTemplate(id);
+  const { e, values, setValues, layout, setLayout, flood } = useTemplate(id);
   const rules = e?.live ?? ['morning'];
   const [rule, setRule] = useState<LiveRule>(() => {
     const j = live.current();
@@ -295,12 +317,13 @@ export function LiveScreen({ id }: { id: string }) {
       onBack={nav.pop}
       back="Back"
       title={e.def.title}
+      flood={flood}
       footer={
         !badge ? (
           <NeedBadge />
         ) : mine ? (
           <>
-            <Card>
+            <Card shadow={null}>
               <Label>Live on {badge.name}</Label>
               <T bold>{LIVE_RULES[mine.rule].label}</T>
               <T muted>
@@ -309,7 +332,7 @@ export function LiveScreen({ id }: { id: string }) {
               </T>
               {mine.lastError && <T muted>Last try didn&apos;t reach the badge: {mine.lastError}</T>}
             </Card>
-            <Row>
+            <Row gap={10}>
               <Btn flex label="Apply changes" busy={starting} onPress={start} />
               <Btn flex kind="danger" label="Stop" onPress={() => live.stop()} />
             </Row>
@@ -322,35 +345,45 @@ export function LiveScreen({ id }: { id: string }) {
         )
       }
     >
-      <View style={{ alignItems: 'center' }}>
-        <DesignPreview prepared={prepared ?? last} width={width} orientation={orientation} />
-      </View>
+      <Print prepared={prepared ?? last} width={width} orientation={orientation} />
       <T>{e.def.description}</T>
-      <Col gap={6}>
-        <Text style={s.small}>Update it</Text>
+      <Col gap={10}>
+        <Label>Update it</Label>
         {rules.map((r) => (
-          <Pressable
-            key={r}
-            onPress={() => setRule(r)}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: rule === r }}
-            style={{ borderWidth: rule === r ? 3 : 2, borderColor: G.ink, borderRadius: 12, padding: 12, backgroundColor: rule === r ? G.chipOn : G.white }}
-          >
-            <Text style={[s.rowLabel, { fontWeight: '700' }]}>{LIVE_RULES[r].label}</Text>
-            <Text style={s.small}>{LIVE_RULES[r].detail}</Text>
-          </Pressable>
+          <RuleCard key={r} on={rule === r} title={LIVE_RULES[r].label} detail={LIVE_RULES[r].detail} onPress={() => setRule(r)} />
         ))}
       </Col>
       <LayoutChips e={e} layout={layout} setLayout={setLayout} />
       {e.def.fields.map((f) => (
         <FieldEditor key={f.key} f={f} values={values} onChange={setValues} />
       ))}
-      <View style={s.problem}>
-        <T muted>
+      <Card shadow={null}>
+        <Label>How live works</Label>
+        <T muted size={17}>
           Your phone sends each update, so the badge only changes while it&apos;s near the phone and Ink Tag is open. If the app was closed,
           it catches up as soon as you open it. Each update flashes the screen for about 20 seconds.
         </T>
-      </View>
+      </Card>
     </Screen>
+  );
+}
+
+/** One choice of a radio group, as a paper card; the chosen one is yellow. */
+function RuleCard({ on, title, detail, onPress }: { on: boolean; title: string; detail: string; onPress: () => void }) {
+  const tx = useText();
+  const sf = useSurface();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={`${title}. ${detail}`}>
+      <View>
+        {on && <View style={{ position: 'absolute', left: 4, top: 4, right: -4, bottom: -4, backgroundColor: INK.black }} />}
+        <View style={{ borderWidth: 2, borderColor: on || !sf.flood ? INK.black : sf.fg, padding: 12, backgroundColor: on ? INK.yellow : sf.flood ? 'transparent' : INK.white, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={[tx.strong, { fontSize: 21 }, on && { color: INK.black }]}>{title}</Text>
+            <Text style={[tx.small, on && { color: INK.muted }]}>{detail}</Text>
+          </View>
+          {on && <Icon name="check" size={22} stroke={3} />}
+        </View>
+      </View>
+    </Pressable>
   );
 }

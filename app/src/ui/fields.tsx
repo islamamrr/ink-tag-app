@@ -6,31 +6,34 @@ import { Pressable, Text, View } from 'react-native';
 
 import { type Field, formatList, type ListItem, parseList, type Values } from '../core';
 import { pickPhotos } from '../services/inkTag';
-import { Btn, Chips, Col, Field as TextField, G, Row, s, T } from './kit';
+import { Btn, Chips, Col, Field as TextField, Label, Row, T, useText } from './kit';
+import { Icon } from './print';
+import { INK } from './theme';
 
 export function FieldEditor({ f, values, onChange, onBusy }: { f: Field; values: Values; onChange: (v: Values) => void; onBusy?: (b: boolean) => void }) {
   const v = values[f.key] ?? f.default;
+  const tx = useText();
   const set = (x: string | boolean | undefined) => onChange({ ...values, [f.key]: x });
   switch (f.kind) {
     case 'choice':
       return (
-        <Col gap={6}>
-          <Text style={s.small}>{f.label}</Text>
+        <Col gap={8}>
+          <Label>{f.label}</Label>
           <Chips options={f.options ?? []} value={typeof v === 'string' ? v : undefined} onChange={set} />
         </Col>
       );
     case 'toggle':
       return (
         <Row>
-          <Text style={[s.rowLabel, { flex: 1 }]}>{f.label}</Text>
+          <Text style={[tx.strong, { flex: 1 }]}>{f.label}</Text>
           <Btn small label={v === true ? 'On' : 'Off'} kind={v === true ? 'primary' : 'secondary'} onPress={() => set(!(v === true))} />
         </Row>
       );
     case 'photo':
       return (
         <Row>
-          <Text style={[s.rowLabel, { flex: 1 }]}>
-            {f.label}: <Text style={s.muted}>{v ? 'chosen' : 'none'}</Text>
+          <Text style={[tx.strong, { flex: 1 }]}>
+            {f.label}: <Text style={tx.small}>{v ? 'chosen' : 'none'}</Text>
           </Text>
           <Btn
             small
@@ -83,12 +86,10 @@ export function ListEditor({ label, value, max, onChange, ticks = true }: { labe
     onChange(sent.current);
   };
   const full = max !== undefined && items.length >= max;
+  const tx = useText();
   return (
-    <Col gap={6}>
-      <Text style={s.small}>
-        {label}
-        {max ? ` · ${items.length} of ${max}` : ''}
-      </Text>
+    <Col gap={8}>
+      <Label>{`${label}${max ? ` · ${items.length} of ${max}` : ''}`}</Label>
       {items.map((it, i) => (
         <Row key={i} gap={6}>
           {ticks && (
@@ -97,9 +98,10 @@ export function ListEditor({ label, value, max, onChange, ticks = true }: { labe
               accessibilityRole="checkbox"
               accessibilityState={{ checked: it.done }}
               hitSlop={8}
-              style={{ width: 30, height: 30, borderWidth: 2, borderColor: G.ink, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: it.done ? G.ink : G.white }}
+              accessibilityLabel={it.text}
+              style={{ width: 34, height: 34, borderWidth: 2, borderColor: INK.black, alignItems: 'center', justifyContent: 'center', backgroundColor: it.done ? INK.yellow : tx.sf.card }}
             >
-              {it.done && <Text style={{ color: G.white, fontWeight: '800' }}>✓</Text>}
+              {it.done && <Icon name="check" size={20} stroke={3.2} />}
             </Pressable>
           )}
           <View style={{ flex: 1 }}>
@@ -109,17 +111,17 @@ export function ListEditor({ label, value, max, onChange, ticks = true }: { labe
               style={it.done ? { textDecorationLine: 'line-through' } : undefined}
             />
           </View>
-          <Pressable onPress={() => i > 0 && save(swap(items, i, i - 1))} hitSlop={6} accessibilityLabel="Move up" style={{ padding: 4 }}>
-            <Text style={[s.t, i === 0 && { color: G.soft }]}>↑</Text>
+          <Pressable onPress={() => i > 0 && save(swap(items, i, i - 1))} hitSlop={6} accessibilityLabel="Move up" accessibilityRole="button" disabled={i === 0} style={{ padding: 4, opacity: i === 0 ? 0.3 : 1 }}>
+            <Icon name="up" size={20} color={tx.sf.fg} stroke={2.6} />
           </Pressable>
-          <Pressable onPress={() => save(items.filter((_, j) => j !== i))} hitSlop={6} accessibilityLabel="Remove" style={{ padding: 4 }}>
-            <Text style={s.t}>✕</Text>
+          <Pressable onPress={() => save(items.filter((_, j) => j !== i))} hitSlop={6} accessibilityLabel="Remove" accessibilityRole="button" style={{ padding: 4 }}>
+            <Icon name="close" size={20} color={tx.sf.fg} stroke={2.6} />
           </Pressable>
         </Row>
       ))}
       {items.length === 0 && <T muted>Nothing yet.</T>}
-      <Row>
-        <Btn small label="+ Add an item" disabled={full} onPress={() => save([...items, { text: `Item ${items.length + 1}`, done: false }])} />
+      <Row gap={10}>
+        <Btn small icon="plus" label="Add an item" disabled={full} onPress={() => save([...items, { text: `Item ${items.length + 1}`, done: false }])} />
         {ticks && items.some((x) => x.done) && <Btn small kind="ghost" label="Clear ticked" onPress={() => save(items.filter((x) => !x.done))} />}
       </Row>
     </Col>

@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DebugScreen from '../screens/DebugScreen';
 import { importPhoto } from '../services/inkTag';
 import { useSharedPhoto } from '../services/share';
-import { Btn, G, Loading, Problem, Screen } from './kit';
+import { Btn, FrameContext, Loading, Problem, Screen } from './kit';
+import { Icon, type IconName } from './print';
 import { type Route, type Tab, useNav } from './nav';
 import { BadgePage, BadgeTab, SetupScreen, Welcome } from './screens/badge';
 import { GalleryScreen, ItemScreen } from './screens/gallery';
@@ -18,6 +19,7 @@ import { AboutScreen, HelpScreen, SettingsScreen } from './screens/settings';
 import { PackScreen, SearchScreen, TemplatePreview, TemplatesHome } from './screens/templates';
 import { BoardScreen, FormScreen, ListScreen, LiveScreen } from './screens/useTemplate';
 import { useServices } from './services';
+import { FONT, INK } from './theme';
 
 function RouteView({ tab, route }: { tab: Tab; route: Route }) {
   const nav = useNav();
@@ -41,7 +43,7 @@ function RouteView({ tab, route }: { tab: Tab; route: Route }) {
     case 'photo':
       return <PhotoScreen photo={route.photo} scene={route.scene} style={route.style} fromShare={route.fromShare} />;
     case 'send':
-      return <SendScreen design={route.design} itemId={route.itemId} />;
+      return <SendScreen design={route.design} itemId={route.itemId} flood={route.flood} />;
     case 'item':
       return <ItemScreen id={route.id} />;
     case 'badgePage':
@@ -65,30 +67,36 @@ function DebugRoute() {
   useEffect(() => {
     app.disconnect().finally(() => setReady(true));
   }, [app]);
+  const insets = useSafeAreaInsets();
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#ffffff', paddingTop: insets.top, paddingBottom: insets.bottom }}>
       <View style={{ paddingHorizontal: 12 }}>
-        <Btn kind="ghost" label="‹ Back to the app" onPress={nav.pop} />
+        <Btn kind="ghost" label="Back to the app" onPress={nav.pop} />
       </View>
       {ready ? <DebugScreen /> : <Loading label="Disconnecting…" />}
     </View>
   );
 }
 
-const TABS: { tab: Tab; label: string }[] = [
-  { tab: 'templates', label: 'Templates' },
-  { tab: 'gallery', label: 'Gallery' },
-  { tab: 'badge', label: 'My badge' },
-  { tab: 'settings', label: 'Settings' },
+const TABS: { tab: Tab; label: string; icon: IconName }[] = [
+  { tab: 'templates', label: 'Print', icon: 'print' },
+  { tab: 'gallery', label: 'Gallery', icon: 'gallery' },
+  { tab: 'badge', label: 'My badge', icon: 'badge' },
+  { tab: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
+/** Paper, a black rule on top; the open tab is a yellow pill with a blue shadow. */
 function TabBar() {
   const nav = useNav();
+  const insets = useSafeAreaInsets();
   const { app } = useServices();
   const many = app.badges.list().length > 1;
   return (
-    <View style={{ flexDirection: 'row', borderTopWidth: 2, borderTopColor: G.ink, backgroundColor: G.white, paddingTop: 6, paddingHorizontal: 6 }}>
-      {TABS.map(({ tab, label }) => {
+    <View
+      accessibilityRole="tablist"
+      style={{ flexDirection: 'row', justifyContent: 'space-around', borderTopWidth: 2, borderTopColor: INK.black, backgroundColor: INK.paper, paddingTop: 8, paddingBottom: 6 + insets.bottom }}
+    >
+      {TABS.map(({ tab, label, icon }) => {
         const on = nav.tab === tab;
         return (
           <Pressable
@@ -96,10 +104,14 @@ function TabBar() {
             onPress={() => (on ? nav.home(tab) : nav.setTab(tab))}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
-            style={{ flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center', gap: 4 }}
+            style={{ flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 2 }}
           >
-            <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: on ? G.ink : G.muted, backgroundColor: on ? G.ink : 'transparent' }} />
-            <Text style={{ fontSize: 12, fontWeight: on ? '700' : '600', color: on ? G.ink : G.muted }}>{tab === 'badge' && many ? 'Badges' : label}</Text>
+            <View style={{ width: 56, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+              {on && <View style={{ position: 'absolute', left: 3, top: 2, width: 56, height: 32, borderRadius: 16, backgroundColor: INK.blue }} />}
+              {on && <View style={{ position: 'absolute', left: 0, top: 0, width: 56, height: 32, borderRadius: 16, backgroundColor: INK.yellow }} />}
+              <Icon name={icon} size={21} color={on ? INK.black : INK.muted} stroke={on ? 2.3 : 2} />
+            </View>
+            <Text style={{ fontFamily: on ? FONT.heavy : FONT.bold, fontSize: 16, color: on ? INK.black : INK.muted, includeFontPadding: false }}>{tab === 'badge' && many ? 'Badges' : label}</Text>
           </Pressable>
         );
       })}
@@ -107,8 +119,11 @@ function TabBar() {
   );
 }
 
+const ROOT = { active: true, bottom: false };
+const DEEP = { active: true, bottom: true };
+const HIDDEN = { active: false, bottom: true };
+
 export default function Shell() {
-  const insets = useSafeAreaInsets();
   const nav = useNav();
   const { app, state } = useServices();
   const { photo, clear } = useSharedPhoto();
@@ -129,7 +144,7 @@ export default function Shell() {
   }, [photo]);
 
   const firstRun = !state.prefs().welcomed && app.badges.list().length === 0;
-  const frame = (child: React.ReactNode) => <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: G.white }}>{child}</View>;
+  const frame = (child: React.ReactNode) => <View style={{ flex: 1, backgroundColor: INK.paper }}>{child}</View>;
 
   if (firstRun)
     return frame(setupOpen ? <SetupScreen onClose={() => setSetupOpen(false)} /> : <Welcome onSetup={() => setSetupOpen(true)} />);
@@ -149,7 +164,10 @@ export default function Shell() {
         <View key={nav.tab} style={{ flex: 1 }}>
           {nav.stack.map((r, i) => (
             <View key={`${i}:${r.name}:${'id' in r ? r.id : ''}`} style={{ flex: 1, display: i === nav.depth - 1 ? 'flex' : 'none' }}>
-              <RouteView tab={nav.tab} route={r} />
+              {/* The tab's first screen sits above the tab bar; deeper ones own the bottom edge. */}
+              <FrameContext.Provider value={i === nav.depth - 1 ? (i === 0 ? ROOT : DEEP) : HIDDEN}>
+                <RouteView tab={nav.tab} route={r} />
+              </FrameContext.Provider>
             </View>
           ))}
         </View>

@@ -14,10 +14,9 @@ with crop, adjust and picture styles, the true preview, text, stickers and
 frames, templates, progress while sending, the library, Send from Photos,
 and the screen check.
 
-**The app now opens on the wireframe UI** (see "Wireframe UI" below): four
-tabs, Templates, Gallery, My badge and Settings, in plain greys so the flow
-can be tested on a real badge before the visual design. The old developer
-screen is under Settings › For testing.
+**The app opens on the riso UI** (see "App UI" below): four tabs, Print,
+Gallery, My badge and Settings, printed in the badge's own inks. The old
+developer screen is under Settings › For testing.
 
 ## Run it
 
@@ -152,20 +151,32 @@ but drawing needs the real UI's touch canvas) and keeping lock keys in the
 phone's keychain (they're in the app's files for now; expo-secure-store is
 the follow-up).
 
-## Wireframe UI
+## App UI
 
-Built from the "Gallery, with Studio's editor" wireframes. Greys only;
-pictures for the badge keep their six inks. `src/ui/kit.tsx` holds every
-building block, so the visual design can replace it without touching the
-screens.
+The flow comes from the "Gallery, with Studio's editor" wireframes; the look
+is "Riso + full-screen colour" (`design/riso-style.md` in the project files):
+the app looks risograph-printed, like the badge's dithered dots.
+
+- **Inks only:** paper `#F3EFE7`, black `#18181B`, red, yellow, blue, green
+  (`src/ui/theme.ts`). Browsing screens are paper. A template or photo
+  **floods** its screens (preview, form, send) with its main ink, worked out
+  from its picture (`mainInk`), with a halftone fading down from the top.
+- **Type:** Rubik Mono One (wordmark, titles on floods), Darker Grotesque
+  (body and UI), Space Mono (small caps labels), bundled in `assets/fonts`.
+- **Print effects:** square cards with a 2 px outline, hard unblurred
+  shadows, slight tilts, off-register text, paper grain. Dots and icons are
+  drawn once with Skia into cached images (`src/ui/print.tsx`).
+- `src/ui/kit.tsx` holds every building block; each one reads the surface it
+  sits on (paper, a card, or a flood) and picks its colours from it, so a
+  screen only says `flood="red"`.
 
 | Tab / flow | What's there |
 |---|---|
 | First run | Welcome wall of real templates, then three setup screens: Bluetooth explained, find (closest badge first, others one tap away), set up (name, upright or sideways, lock). After 20 s with nothing found: three checks and the demo badge. |
-| **Templates** (opens here) | "Now on My badge" line, the newest pack as the "New" shelf, categories (Work, Everyday, Home and shop, Events, Fun, Live), popular, everything, and Start from scratch (Photo, Text, QR code, Collage). Search. A template's preview with its layouts and what you'll fill in. |
+| **Print** (opens here) | "On your badge" strip, the blue "Print a photo" block, your recent photos already in the badge's inks, then "Or start from a print": the newest pack as the "New" shelf, categories (Work, Everyday, Home and shop, Events, Fun, Live), popular, everything, and Start from scratch (Photo, Text, QR code, Collage). Search. A template's preview with its layouts and what you'll fill in. |
 | Template screens | **Form** (fill in, live preview, Next). **List** (to-do, shopping: add, tick, reorder, "Update my badge" in place). **Board** (status board, open/closed: tap one and it's sent; Edit to change the set). **Live** (clock, day and date, countdown, year progress: every hour, every 15 minutes or once a morning; the phone sends each update while the app is open and catches up when it's opened again). |
-| Photo editor | Drag to move under the badge outline, zoom, Fill / Fit, then a dock: Text, Sticker, Frame, Look (styles, sliders, Photo / On badge compare). |
-| Send | Last look, "to: My badge" chip (sheet to pick another badge), Slide to ink, four plain stages, the drawing wipe once it's safe to walk away, then back to the Gallery with a note. Failures say what the badge shows now, with Try again / Send it later / What went wrong. |
+| Photo editor | Flooded in the photo's main ink. Drag to move under the badge outline, hold to see the original, zoom, Fill / Whole photo, then a dock: Text, Sticker, Frame (ink swatches), Look (dots, ink boost and other sliders, Original / On badge). |
+| Send | Last look in the same flood, "To My badge" chip (sheet to pick another badge), Slide to print, four plain stages, the drawing wipe once it's safe to walk away, then back to the Gallery with a note. Failures say what the badge shows now, with Try again / Send it later / What went wrong. |
 | **Gallery** | "Now on" card (a strip of badges once there are two), All / Favourites / collections, + sheet. An item: send again, edit a copy, add to a collection, favourite, delete. |
 | **My badge** | Status, the problem box when it can't be reached, Redraw / Check screen / Blank, name, how it hangs, lock, forget. With two or more badges the tab becomes Badges, a list of these pages. |
 | **Settings** | Connect when the app opens, default look, add a badge or a demo badge, troubleshooting, share a log, about, the old test screen. |
@@ -212,9 +223,11 @@ src/services/        phone side: photo decode (Skia), badge connections,
                      inkTag.ts (the v1 service on the phone), render.ts (Skia),
                      storage.ts (files), fonts.ts, share.ts (share sheet),
                      app.ts (services for the UI, live runner, support log)
-src/ui/              the wireframe UI: kit.tsx, nav.tsx, Shell.tsx, screens/
+src/ui/              the app UI: theme.ts (inks, type), print.tsx (dots, icons),
+                     kit.tsx, nav.tsx, Shell.tsx, screens/
 src/screens/         DebugScreen (the low-level test screen), devUi.tsx
-assets/fonts/        Inter Regular and Bold (SIL OFL, see OFL.txt)
+assets/fonts/        Inter (drawn on the badge), Rubik Mono One, Darker Grotesque
+                     and Space Mono (the app's own type); all SIL OFL, see OFL.txt
 test/                Jest tests; test/golden holds files made by the Python tool
 tools/make_golden.py regenerates test/golden from firmware/tools/inktag.py
 ```
