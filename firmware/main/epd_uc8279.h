@@ -44,6 +44,33 @@ const uint8_t *epd_panel_id(void);
 // impossibly fast (no panel driving BUSY): nothing was drawn either way.
 esp_err_t epd_show(epd_reader_t reader, void *ctx);
 
+// Window test (experimental): redraws only a box of the panel, to find out
+// whether the UC8279E refreshes a window by itself and whether the panel has
+// a faster waveform than the six-color one. Coordinates are in the native
+// frame (792 x 528, controller order); x and w must be multiples of 8.
+#define EPD_WIN_CODE_NORMAL 0x00  // use the normal code for the panel temperature
+#define EPD_WIN_CODE_SKIP   0xFF  // leave this pass out
+#define EPD_WIN_BOX_DATA    0x01  // flags: send only the box's pixels (else the whole frame)
+
+typedef struct {
+    uint16_t x, y, w, h;
+    uint8_t code1, code2;  // 0xE6 waveform code for pass 1 and 2, or EPD_WIN_CODE_*
+    uint8_t flags;         // EPD_WIN_*
+} epd_window_t;
+
+typedef struct {
+    uint8_t code1, code2;          // codes actually used
+    uint32_t pass1_ms, pass2_ms;   // how long BUSY stayed low, 0 if skipped
+} epd_window_result_t;
+
+// `reader` supplies the whole 4 bpp frame (offsets as in epd_show); only the
+// parts the mode needs are read. Unlike epd_show, a refresh that ends very
+// quickly is reported, not treated as a missing panel; one that never goes
+// busy is still ESP_ERR_TIMEOUT. ESP_ERR_INVALID_ARG for a bad box or two
+// skipped passes. Leaves the panel in deep sleep.
+esp_err_t epd_show_window(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                          epd_window_result_t *res);
+
 // Fills the whole panel with one color.
 esp_err_t epd_clear(uint8_t color);
 

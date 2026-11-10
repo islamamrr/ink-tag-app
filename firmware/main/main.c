@@ -2,6 +2,7 @@
 // and draws it on the six-color e-ink panel.
 
 #include <string.h>
+#include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -128,6 +129,82 @@ static void show_stored(uint8_t cmd)
     report_show(epd_show(image_store_read, NULL), cmd, INKTAG_ERR_FLASH);
 }
 
+// ---------------------------------------------------------------- window test
+
+#define WINDOW_STRIPES 0x10
+
+typedef struct {
+    epd_window_t win;
+    uint8_t fill;
+    bool stored;  // outside the box: the stored image, else white
+} window_ctx_t;
+
+static uint8_t window_color(const window_ctx_t *w, uint16_t px)
+{
+    static const uint8_t COLORS[6] = {EPD_BLACK, EPD_WHITE, EPD_YELLOW, EPD_RED, EPD_BLUE, EPD_GREEN};
+    if (w->fill != WINDOW_STRIPES) {
+        return w->fill & 0x0F;
+    }
+    return COLORS[(px - w->win.x) * 6 / w->win.w];
+}
+
+// The stored image (or white) with the box filled in.
+static esp_err_t window_reader(void *ctx, size_t offset, uint8_t *buf, size_t len)
+{
+    const window_ctx_t *w = ctx;
+    if (w->stored) {
+        ESP_RETURN_ON_ERROR(image_store_read(NULL, offset, buf, len), TAG, "read");
+    } else {
+        memset(buf, (EPD_WHITE << 4) | EPD_WHITE, len);
+    }
+    for (size_t i = 0; i < len; i++) {
+        size_t row = (offset + i) / (EPD_WIDTH / 2);
+        uint16_t px = ((offset + i) % (EPD_WIDTH / 2)) * 2;
+        if (row >= w->win.y && row < w->win.y + w->win.h &&
+            px >= w->win.x && px < w->win.x + w->win.w) {
+            buf[i] = (window_color(w, px) << 4) | window_color(w, px + 1);
+        }
+    }
+    return ESP_OK;
+}
+
+static uint16_t rd16(const uint8_t *p)
+{
+    return p[0] | (p[1] << 8);
+}
+
+static void window_test(const uint8_t *cmd, size_t len)
+{
+    if (len < 13) {
+        notify_error(INKTAG_ERR_BAD_COMMAND, cmd[0]);
+        return;
+    }
+    static window_ctx_t w;
+    w.win = (epd_window_t){
+        .x = rd16(&cmd[1]), .y = rd16(&cmd[3]), .w = rd16(&cmd[5]), .h = rd16(&cmd[7]),
+        .code1 = cmd[10], .code2 = cmd[11], .flags = cmd[12],
+    };
+    w.fill = cmd[9];
+    w.stored = image_store_has_image();
+    epd_window_result_t res;
+    esp_err_t err = epd_show_window(&w.win, window_reader, &w, &res);
+    if (err == ESP_ERR_INVALID_ARG) {
+        notify_error(INKTAG_ERR_BAD_COMMAND, cmd[0]);
+        return;
+    }
+    if (err != ESP_OK) {
+        notify_error(err == ESP_ERR_TIMEOUT ? INKTAG_ERR_PANEL_TIMEOUT : INKTAG_ERR_FLASH, cmd[0]);
+        return;
+    }
+    ESP_LOGW(TAG, "window test done: codes %u/%u, pass 1 %lu ms, pass 2 %lu ms",
+             res.code1, res.code2, (unsigned long)res.pass1_ms, (unsigned long)res.pass2_ms);
+    uint8_t msg[13] = {INKTAG_EVT_WINDOW, INKTAG_OK, (uint8_t)epd_last_temperature(),
+                       res.code1, res.code2};
+    memcpy(&msg[5], &res.pass1_ms, 4);   // little endian on the ESP32
+    memcpy(&msg[9], &res.pass2_ms, 4);
+    ble_service_notify(msg, sizeof(msg));
+}
+
 static void notify_challenge(void)
 {
     uint8_t msg[2 + LOCK_KEY_BYTES] = {INKTAG_EVT_CHALLENGE, INKTAG_OK};
@@ -147,6 +224,7 @@ static bool needs_owner(uint8_t op)
     case INKTAG_CMD_TEMP:
     case INKTAG_CMD_LOCK:
     case INKTAG_CMD_UNLOCK:
+    case INKTAG_CMD_WINDOW:
         return true;
     default:
         return false;
@@ -286,6 +364,14 @@ static void handle_command(const uint8_t *cmd, size_t len)
             notify_error(INKTAG_ERR_FLASH, cmd[0]);
         } else {
             notify_info();
+        }
+        break;
+
+    case INKTAG_CMD_WINDOW:
+        if (s_state != STATE_IDLE) {
+            notify_error(INKTAG_ERR_BAD_STATE, cmd[0]);
+        } else {
+            window_test(cmd, len);
         }
         break;
 
