@@ -167,13 +167,34 @@ async function drawOp(
   }
 }
 
+// Decoded photos, newest last: a big phone photo takes a while to decode, and
+// the photo editor redraws the same one again and again.
+const decoded = new Map<string, SkImage>();
+const DECODED_KEEP = 3;
+
+/** A library photo as a Skia image, decoded once and kept for the next few redraws. */
+export async function photoImage(id: string, loadPhoto: (id: string) => Promise<Uint8Array | null>): Promise<SkImage | null> {
+  const hit = decoded.get(id);
+  if (hit) {
+    decoded.delete(id);
+    decoded.set(id, hit);
+    return hit;
+  }
+  const bytes = await loadPhoto(id);
+  const img = bytes ? Skia.Image.MakeImageFromEncoded(Skia.Data.fromBytes(bytes)) : null;
+  if (img) {
+    decoded.set(id, img);
+    while (decoded.size > DECODED_KEEP) decoded.delete(decoded.keys().next().value!);
+  }
+  return img;
+}
+
 async function drawPhoto(
   canvas: SkCanvas,
   l: PhotoLayer,
   loadPhoto: (id: string) => Promise<Uint8Array | null>,
 ) {
-  const bytes = await loadPhoto(l.photo);
-  const img = bytes && Skia.Image.MakeImageFromEncoded(Skia.Data.fromBytes(bytes));
+  const img = await photoImage(l.photo, loadPhoto);
   const { x, y, width, height } = l.box;
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
