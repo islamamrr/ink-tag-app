@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import { type CatalogEntry, LIVE_RULES, SCRATCH } from '../../core';
-import { Btn, Card, Chip, ChipStrip, Col, Field, H, IconBtn, Label, Note, Row, Screen, Section, T, useSurface, useText } from '../kit';
+import { Btn, Card, Chip, EmptyState, ChipStrip, Col, Field, H, IconBtn, Label, Note, Row, Screen, Section, T, useSurface, useText } from '../kit';
 import { type Route, useNav } from '../nav';
 import { ItemThumb, TemplateThumb, useTemplateInk } from '../pictures';
 import { Dots, Icon, InkDot, OffsetText } from '../print';
@@ -237,11 +237,10 @@ export function SearchScreen() {
       <Field placeholder="Try “wifi”, “clock”, “wedding”" value={q} onChangeText={setQ} autoFocus accessibilityLabel="Search templates" />
       {q.trim() !== '' && <Label muted>{found.length === 1 ? '1 print' : `${found.length} prints`}</Label>}
       <Grid entries={found} />
-      {q.trim() !== '' && (
-        <Card shadow={null}>
-          <T bold>Missing something?</T>
-          <T muted>Tell us what you&apos;d put on your badge. Popular ideas become the next pack. (Suggestions aren&apos;t sent anywhere yet in this test build.)</T>
-        </Card>
+      {q.trim() !== '' && found.length === 0 && (
+        <EmptyState icon="search" title="No prints match that">
+          Try a shorter word, like “name”, “sign” or “list”.
+        </EmptyState>
       )}
     </Screen>
   );
@@ -261,12 +260,12 @@ export function TemplatePreview({ id }: { id: string }) {
       </Screen>
     );
   const orientation = badge?.orientation ?? 'portrait';
-  const w = orientation === 'portrait' ? Math.min(250, width * 0.62) : width - 70;
+  const w = orientation === 'portrait' ? Math.min(270, width * 0.66) : width - 70;
   const meta = [e.def.title, inkLine(ink.shares)].filter(Boolean).join(' · ');
   return (
     <Screen onBack={nav.pop} back="Print" title={meta} flood={ink.flood} footer={<Btn kind="primary" label="Use this template" onPress={() => nav.replace(routeFor(e))} />}>
       <View style={{ alignItems: 'center', gap: 18, paddingTop: 14, paddingBottom: 4 }}>
-        <TemplateThumb app={app} entry={e} width={w} orientation={orientation} layout={layout} tilt={-2} shadow={INK.black} />
+        <TemplateThumb app={app} entry={e} width={w} orientation={orientation} layout={layout} tilt={-2} shadow={INK.black} device />
         {e.def.layouts > 1 && (
           <Row gap={8}>
             {Array.from({ length: e.def.layouts }, (_, i) => (

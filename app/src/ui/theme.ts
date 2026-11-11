@@ -35,6 +35,28 @@ export const FONT = {
   monoBold: 'SpaceMono-Bold',
 } as const;
 
+/**
+ * The only type sizes the app uses. Display is Rubik Mono One, heading and
+ * body Darker Grotesque, label Space Mono caps.
+ */
+export const TYPE = {
+  displayL: 30,
+  displayM: 24,
+  displayS: 18,
+  headingL: 26,
+  headingM: 22,
+  body: 18,
+  small: 16,
+  label: 12,
+  labelS: 10,
+} as const;
+
+/** The only gaps and paddings. The screen's side padding is 20. */
+export const SPACE = { xs: 4, s: 8, m: 12, l: 16, side: 20, xl: 24, xxl: 32 } as const;
+
+/** Hard shadows: cards and prints sit on black, selected chips and tabs on blue. */
+export const SHADOW = { card: 4, chipX: 3, chipY: 2 } as const;
+
 /** The inks a screen can flood with. */
 export type Flood = 'red' | 'yellow' | 'blue' | 'green';
 const FLOODS: Flood[] = ['red', 'yellow', 'blue', 'green'];

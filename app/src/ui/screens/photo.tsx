@@ -170,7 +170,7 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
             delayLongPress={220}
             accessibilityLabel="Your photo as the badge will show it. Hold to see the original, drag to move it."
           >
-            <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} show={show} tilt={-1.5} shadow={INK.black} />
+            <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} show={show} tilt={-1.5} shadow={INK.black} device />
           </Pressable>
         ) : (
           <View style={{ paddingVertical: 40 }}>

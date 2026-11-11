@@ -10,7 +10,7 @@ import { BlendMode, PaintStyle, Skia, type SkCanvas, StrokeCap, StrokeJoin } fro
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
 import { Image, PixelRatio, StyleSheet, Text, type TextStyle, useWindowDimensions, View, type ViewStyle } from 'react-native';
 
-import { INK, PAPER, type Surface } from './theme';
+import { FONT, INK, PAPER, type Surface } from './theme';
 
 // ------------------------------------------------------------------ surface
 
@@ -135,7 +135,9 @@ const ICONS = {
   search: `${circle(11, 11, 7)}M20 20l-4-4`,
   print: 'M6 9V3h12v6M3 9h18v8H3zM7 14h10v7H7z',
   gallery: 'M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6',
-  badge: 'M2 7h20v14H2zM12 7V3',
+  badge: 'M6 4h12v17H6zM10 4V2.5h4V4M9 9h6',
+  blank: 'M6 4h12v17H6zM9 8l6 9M15 8l-6 9',
+  pulse: 'M3 12h4l2-5 4 10 2-5h6',
   settings: `${circle(12, 12, 3)}M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1`,
   back: 'M15 6l-6 6 6 6',
   next: 'M9 6l6 6-6 6',
@@ -185,9 +187,38 @@ export function InkDot({ color, size = 10, round = true }: { color: string; size
   return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: size, height: size, borderRadius: round ? size / 2 : 0, backgroundColor: color }} />;
 }
 
+// ------------------------------------------------------------------ words
+
+const MONO_FACES: string[] = [FONT.display, FONT.mono, FONT.monoBold];
+
+/** True for the monospaced faces, whose space is a full letter wide. */
+export const isMono = (style: TextStyle | TextStyle[] | undefined) => MONO_FACES.includes(String(StyleSheet.flatten(style)?.fontFamily ?? ''));
+
+/**
+ * A line of words with a narrower gap between them. In the monospaced faces
+ * (Rubik Mono One, Space Mono) a space is a whole letter wide, so "INK TAG"
+ * reads as two words far apart; React Native has no word-spacing, so each
+ * word is its own Text in a wrapping row. Reads as one label to a screen reader.
+ */
+export function Words({ text, style, gap = 0.3, align = 'left', render }: { text: string; style: TextStyle | TextStyle[]; gap?: number; align?: 'left' | 'center' | 'right'; render?: (word: string) => ReactNode }) {
+  const flat = StyleSheet.flatten(style) ?? {};
+  const words = text.split(/\s+/).filter(Boolean);
+  return (
+    <View
+      accessible
+      accessibilityLabel={text}
+      style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: (flat.fontSize ?? 14) * gap, justifyContent: align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start' }}
+    >
+      {words.map((w, i) => (
+        <View key={i}>{render ? render(w) : <Text style={style}>{w}</Text>}</View>
+      ))}
+    </View>
+  );
+}
+
 // ------------------------------------------------------------------ offset ink
 
-/** Text printed twice, the second ink a little off-register behind it. */
+/** Text printed twice, the second ink a little off-register behind it. In a mono face, word by word (see Words). */
 export function OffsetText({
   children,
   style,
@@ -195,6 +226,7 @@ export function OffsetText({
   dx = 3,
   dy = 2,
   numberOfLines,
+  align,
 }: {
   children: ReactNode;
   style: TextStyle | TextStyle[];
@@ -202,7 +234,21 @@ export function OffsetText({
   dx?: number;
   dy?: number;
   numberOfLines?: number;
+  align?: 'left' | 'center' | 'right';
 }) {
+  if (typeof children === 'string' && numberOfLines === undefined && isMono(style))
+    return (
+      <Words
+        text={children}
+        style={style}
+        align={align ?? (StyleSheet.flatten(style)?.textAlign === 'center' ? 'center' : 'left')}
+        render={(w) => (
+          <OffsetText style={style} second={second} dx={dx} dy={dy} numberOfLines={1}>
+            {w}
+          </OffsetText>
+        )}
+      />
+    );
   return (
     <View>
       <Text
@@ -228,6 +274,20 @@ export function HardShadow({ x = 4, y = 4, color = INK.black, radius = 0, style,
     <View style={style}>
       <View pointerEvents="none" style={{ position: 'absolute', left: x, top: y, right: -x, bottom: -y, backgroundColor: color, borderRadius: radius }} />
       {children}
+    </View>
+  );
+}
+
+// ------------------------------------------------------------------ six inks
+
+/** The badge's six inks in a row of outlined squares: the brand's signature, next to the wordmark. */
+export function InkStrip({ size = 14, gap = 4, style }: { size?: number; gap?: number; style?: ViewStyle }) {
+  const inks = [INK.black, INK.white, INK.red, INK.yellow, INK.blue, INK.green];
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[{ flexDirection: 'row', gap }, style]}>
+      {inks.map((c) => (
+        <View key={c} style={{ width: size, height: size, backgroundColor: c, borderWidth: 2, borderColor: INK.black }} />
+      ))}
     </View>
   );
 }

@@ -18,6 +18,7 @@ import {
   type RgbaImage,
   type Scene,
   STYLES,
+  PREVIEW_VERSION,
 } from '../src/core';
 import { createSkiaRenderer, typefacesFrom } from '../src/services/render';
 
@@ -156,4 +157,12 @@ test('a design goes through the service to a demo badge, with a preview PNG', as
   const decoded = Skia.Image.MakeImageFromEncoded(Skia.Data.fromBytes(png!))!;
   expect(decoded.width()).toBe(176);
   expect(decoded.readPixels(0, 0, { width: 1, height: 1, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul })).toBeTruthy();
+  expect(app.library.get(item.id)!.previewVersion).toBe(PREVIEW_VERSION);
+
+  // An item saved before the screen inks gets its preview repainted once, from its frame.
+  await app.library.setPreview(item.id, new Uint8Array([1, 2, 3]), 1);
+  const thumb = await app.thumbnail(item.id);
+  expect(Array.from(thumb!.subarray(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  expect(app.library.get(item.id)!.previewVersion).toBe(PREVIEW_VERSION);
+  expect(Array.from((await app.library.preview(item.id))!.subarray(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
 });

@@ -27,7 +27,7 @@ export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?
   const target = targetId ? app.badges.get(targetId) : undefined;
   const item = itemId ? app.library.get(itemId) : undefined;
   const orientation = design?.scene.orientation ?? item?.scene.orientation ?? target?.orientation ?? 'portrait';
-  const previewW = orientation === 'portrait' ? Math.min(250, width * 0.6) : width - 70;
+  const previewW = orientation === 'portrait' ? Math.min(270, width * 0.66) : width - 70;
   const badges = app.badges.list();
 
   // Sideways design, upright badge (or the other way): say so before sending.
@@ -55,9 +55,9 @@ export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?
 
   const p = sender.progress;
   const picture = itemId ? (
-    <ItemThumb app={app} itemId={itemId} width={previewW} orientation={orientation} tilt={-2} shadow={INK.black} />
+    <ItemThumb app={app} itemId={itemId} width={previewW} orientation={orientation} tilt={-2} shadow={INK.black} device />
   ) : (
-    <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} tilt={-2} shadow={INK.black} />
+    <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} tilt={-2} shadow={INK.black} device />
   );
 
   if (sender.phase === 'idle')
@@ -99,7 +99,6 @@ export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?
               last={i === badges.length - 1}
             />
           ))}
-          <ListRow label="Shared with me" detail="Later: badges other people share with you" last />
           <Btn
             label="Add another badge"
             onPress={() => {

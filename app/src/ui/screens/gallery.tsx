@@ -57,7 +57,7 @@ function NowOn() {
   const item = badge.shownItemId ? app.library.get(badge.shownItemId) : undefined;
   return (
     <Card onPress={() => nav.setTab('badge')} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }} label={`Now on ${badge.name}`}>
-      {item ? <ItemThumb app={app} itemId={item.id} width={54} orientation={badge.orientation} tilt={-2} /> : <BadgeFrame width={54} orientation={badge.orientation} tilt={-2} style={{ backgroundColor: INK.paper }} />}
+      {item ? <ItemThumb app={app} itemId={item.id} width={54} orientation={badge.orientation} tilt={-2} device /> : <BadgeFrame width={54} orientation={badge.orientation} tilt={-2} device style={{ backgroundColor: INK.paper }} />}
       <View style={{ flex: 1, gap: 3 }}>
         <Label muted>Now on {badge.name}</Label>
         <Text style={[tx.strong, { fontFamily: FONT.black, fontSize: 22 }]} numberOfLines={1}>
@@ -230,7 +230,7 @@ export function ItemScreen({ id }: { id: string }) {
       right={<IconBtn icon="heart" fill={it.favourite} label={it.favourite ? 'Remove from favourites' : 'Add to favourites'} onPress={() => app.library.setFavourite(it.id, !it.favourite)} />}
     >
       <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 6 }}>
-        <ItemThumb app={app} itemId={it.id} width={o === 'portrait' ? Math.min(240, width * 0.6) : width - 70} orientation={o} tilt={-2} shadow={INK.black} sticker={onBadge ? 'ON BADGE' : undefined} />
+        <ItemThumb app={app} itemId={it.id} width={o === 'portrait' ? Math.min(240, width * 0.6) : width - 70} orientation={o} tilt={-2} shadow={INK.black} device sticker={onBadge ? 'ON BADGE' : undefined} />
       </View>
       <Col gap={4}>
         <H size={30}>{it.title}</H>

@@ -183,9 +183,9 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
 
       <Row gap={18} style={{ alignItems: 'flex-start', paddingTop: 6 }}>
         {item ? (
-          <ItemThumb app={app} itemId={item.id} width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} />
+          <ItemThumb app={app} itemId={item.id} width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} device />
         ) : (
-          <BadgeFrame width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} style={{ backgroundColor: INK.paper }} />
+          <BadgeFrame width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} device style={{ backgroundColor: INK.paper }} />
         )}
         <Col gap={6} style={{ flex: 1 }}>
           {root && <H size={28}>{b.name}</H>}
@@ -391,7 +391,7 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
   if (step === 'help')
     return (
       <Screen onBack={back} back="Back" right={app.bluetooth ? header : undefined} footer={<>{app.bluetooth && <Btn kind="primary" label="Search again" onPress={startScan} />}<DemoButton label="Use the demo badge for now" /></>}>
-        <H>{app.bluetooth ? "We can't find a badge yet" : 'Bluetooth isn’t available in this build'}</H>
+        <H>{app.bluetooth ? "We can't find a badge yet" : 'Bluetooth isn’t available here'}</H>
         {error && <Problem title="What happened">{error}</Problem>}
         {app.bluetooth ? (
           <Group>
@@ -400,7 +400,7 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
             <ListRow label="3. Is it locked to another phone?" detail="Hold its button for 10 s to reset it." last />
           </Group>
         ) : (
-          <T>This copy of the app can&apos;t use Bluetooth (for example in Expo Go). The demo badge works everywhere.</T>
+          <T>This version of the app can&apos;t use Bluetooth. You can still look around with the demo badge.</T>
         )}
       </Screen>
     );

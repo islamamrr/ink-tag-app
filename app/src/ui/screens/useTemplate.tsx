@@ -39,7 +39,7 @@ function useTemplate(id: string, initial?: { values?: Values; layout?: number })
 function Print({ prepared, width, orientation }: { prepared: Parameters<typeof DesignPreview>[0]['prepared']; width: number; orientation: 'portrait' | 'landscape' }) {
   return (
     <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 6 }}>
-      <DesignPreview prepared={prepared} width={width} orientation={orientation} tilt={-2} shadow={INK.black} />
+      <DesignPreview prepared={prepared} width={width} orientation={orientation} tilt={-2} shadow={INK.black} device />
     </View>
   );
 }
@@ -82,7 +82,7 @@ function usePreviewSize() {
   const { width } = useWindowDimensions();
   const { badge } = useServices();
   const o = badge?.orientation ?? 'portrait';
-  return { orientation: o, width: o === 'portrait' ? Math.min(210, width * 0.52) : Math.min(330, width - 70) };
+  return { orientation: o, width: o === 'portrait' ? Math.min(230, width * 0.56) : Math.min(330, width - 70) };
 }
 
 // ------------------------------------------------------------------ form
