@@ -8,7 +8,7 @@ import { type Field, formatList, type ListItem, parseList, type Values } from '.
 import { pickPhotos } from '../services/inkTag';
 import { Btn, Chips, Col, Field as TextField, Label, Row, T, useText } from './kit';
 import { Icon } from './print';
-import { INK } from './theme';
+import { BADGE_INK, INK } from './theme';
 
 export function FieldEditor({ f, values, onChange, onBusy }: { f: Field; values: Values; onChange: (v: Values) => void; onBusy?: (b: boolean) => void }) {
   const v = values[f.key] ?? f.default;
@@ -19,7 +19,7 @@ export function FieldEditor({ f, values, onChange, onBusy }: { f: Field; values:
       return (
         <Col gap={8}>
           <Label>{f.label}</Label>
-          <Chips options={f.options ?? []} value={typeof v === 'string' ? v : undefined} onChange={set} />
+          <Chips options={(f.options ?? []).map((o) => ({ ...o, swatches: o.inks?.map((c) => BADGE_INK[c]) }))} value={typeof v === 'string' ? v : undefined} onChange={set} />
         </Col>
       );
     case 'toggle':

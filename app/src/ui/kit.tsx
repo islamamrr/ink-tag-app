@@ -282,7 +282,7 @@ export function IconBtn({ icon, label, onPress, tone, fill }: { icon: IconName; 
   );
 }
 
-export function Chip({ label, on, onPress, swatch }: { label: string; on?: boolean; onPress?: () => void; swatch?: string }) {
+export function Chip({ label, on, onPress, swatch, swatches }: { label: string; on?: boolean; onPress?: () => void; swatch?: string; swatches?: string[] }) {
   const sf = useSurface();
   const yellowFlood = sf.flood === 'yellow';
   const face: ViewStyle = on
@@ -301,6 +301,13 @@ export function Chip({ label, on, onPress, swatch }: { label: string; on?: boole
       {shadow ? <View style={{ position: 'absolute', left: SHADOW.chipX, top: SHADOW.chipY, right: -SHADOW.chipX, bottom: -SHADOW.chipY, borderRadius: 22, backgroundColor: shadow }} /> : null}
       <View style={[st.chip, face]}>
         {swatch && <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: swatch, borderWidth: 1.5, borderColor: INK.black }} />}
+        {swatches && swatches.length > 0 && (
+          <View style={{ flexDirection: 'row' }}>
+            {swatches.map((c, i) => (
+              <View key={i} style={{ width: 14, height: 14, borderRadius: 7, marginLeft: i ? -4 : 0, backgroundColor: c, borderWidth: 1.5, borderColor: INK.black }} />
+            ))}
+          </View>
+        )}
         <Text style={[st.chipText, { color }]} numberOfLines={1}>
           {label}
         </Text>
@@ -314,14 +321,14 @@ export function Chips<V extends string | number>({
   value,
   onChange,
 }: {
-  options: { value: V; label: string }[];
+  options: { value: V; label: string; swatches?: string[] }[];
   value: V | undefined;
   onChange: (v: V) => void;
 }) {
   return (
     <Row wrap gap={8}>
       {options.map((o) => (
-        <Chip key={String(o.value)} label={o.label} on={o.value === value} onPress={() => onChange(o.value)} />
+        <Chip key={String(o.value)} label={o.label} swatches={o.swatches} on={o.value === value} onPress={() => onChange(o.value)} />
       ))}
     </Row>
   );
