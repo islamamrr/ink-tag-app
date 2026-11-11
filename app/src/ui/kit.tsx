@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Dots, Ground, HardShadow, Icon, type IconName, InkStrip, OffsetText, OnSurface, useSurface, Words } from './print';
+import { Dots, HardShadow, Icon, type IconName, InkStrip, OffsetText, OnSurface, useSurface, WipeGround, Words } from './print';
 import { BADGE_INK, type Flood, FONT, INK, PAPER, SHADOW, SPACE, type Surface, surfaceFor, TYPE } from './theme';
 
 export { useSurface } from './print';
@@ -75,7 +75,7 @@ export function Screen({
     <OnSurface surface={sf}>
       <View style={{ flex: 1, backgroundColor: sf.ground, paddingTop: insets.top }}>
         {frame.active && <StatusBar style={sf.light ? 'light' : 'dark'} />}
-        <Ground surface={sf} />
+        <WipeGround surface={sf} />
         {(title || brand || onBack || right) && (
           <View style={st.header}>
             {onBack ? (

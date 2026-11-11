@@ -7,8 +7,8 @@
 // mounted).
 
 import { BlendMode, PaintStyle, Skia, type SkCanvas, StrokeCap, StrokeJoin } from '@shopify/react-native-skia';
-import { createContext, type ReactNode, useContext, useMemo } from 'react';
-import { Image, PixelRatio, StyleSheet, Text, type TextStyle, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { AccessibilityInfo, Animated, Easing, Image, PixelRatio, StyleSheet, Text, type TextStyle, useWindowDimensions, View, type ViewStyle } from 'react-native';
 
 import { FONT, INK, PAPER, type Surface } from './theme';
 
@@ -115,6 +115,59 @@ export function Ground({ surface, halftone = 420 }: { surface: Surface; halftone
       </View>
     );
   return <PaperGrain ground={surface.ground} />;
+}
+
+/** True when the person asked the system for less motion. */
+export function useReduceMotion(): boolean {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    let live = true;
+    AccessibilityInfo.isReduceMotionEnabled?.()
+      .then((r) => live && setReduce(r))
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener?.('reduceMotionChanged', setReduce);
+    return () => {
+      live = false;
+      sub?.remove();
+    };
+  }, []);
+  return reduce;
+}
+
+/**
+ * The screen's ground; when the flood ink changes, the new ink wipes down
+ * over the old one like a fresh pass through the press. Instant with reduce motion.
+ */
+export function WipeGround({ surface }: { surface: Surface }) {
+  const { height } = useWindowDimensions();
+  const reduce = useReduceMotion();
+  const [shown, setShown] = useState(surface);
+  const [under, setUnder] = useState<Surface | null>(null);
+  const [t] = useState(() => new Animated.Value(1));
+  if (surface.ground !== shown.ground) {
+    // A new ink: keep the old one underneath while the new one wipes in.
+    setUnder(reduce ? null : shown);
+    setShown(surface);
+  }
+  useEffect(() => {
+    if (!under) return;
+    t.setValue(0);
+    const run = Animated.timing(t, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+    run.start(({ finished }) => finished && setUnder(null));
+    return () => run.stop();
+  }, [under, t]);
+  if (!under) return <Ground surface={shown} />;
+  const h = Math.ceil(height) + 40;
+  return (
+    <>
+      <Ground surface={under} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { overflow: 'hidden', transform: [{ translateY: t.interpolate({ inputRange: [0, 1], outputRange: [-h, 0] }) }] }]}>
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: t.interpolate({ inputRange: [0, 1], outputRange: [h, 0] }) }] }]}>
+          <Ground surface={shown} />
+        </Animated.View>
+      </Animated.View>
+    </>
+  );
 }
 
 /** The paper's faint dot grid: one small tile, repeated. */

@@ -122,12 +122,13 @@ export function mainInk(shares: Shares | null | undefined, fallback: Flood = 'bl
   return best ?? fallback;
 }
 
-/** "GREEN + RED", "MOSTLY RED", or "BLACK + WHITE": the inks a picture prints with. */
+/** "GREEN + RED", "YELLOW + BLUE + RED", "MOSTLY RED", or "BLACK + WHITE": the inks a picture prints with. */
 export function inkLine(shares: Shares | null | undefined): string {
   if (!shares) return '';
   const used = FLOODS.filter((f) => (shares[f] ?? 0) >= 0.03).sort((a, b) => (shares[b] ?? 0) - (shares[a] ?? 0));
   if (used.length === 0) return 'BLACK + WHITE';
   if (used.length === 1 || (shares[used[0]] ?? 0) > 3 * (shares[used[1]] ?? 0)) return `MOSTLY ${used[0].toUpperCase()}`;
+  if (used.length >= 3 && (shares[used[2]] ?? 0) >= 0.08) return `${used[0]} + ${used[1]} + ${used[2]}`.toUpperCase();
   return `${used[0]} + ${used[1]}`.toUpperCase();
 }
 

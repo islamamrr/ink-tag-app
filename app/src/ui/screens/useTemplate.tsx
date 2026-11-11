@@ -11,7 +11,7 @@ import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { type CatalogEntry, type Design, LIVE_RULES, type LiveRule, parseList, type PictureStyle, STYLE_NAMES, STYLES, type Values } from '../../core';
 import { templateDesign } from '../../services/app';
 import { FieldEditor } from '../fields';
-import { Btn, Card, Chip, Chips, Col, Label, Problem, Row, Screen, T, useSurface, useText } from '../kit';
+import { Btn, Card, Chip, Chips, Col, Label, Meta, Problem, Row, Screen, T, useSurface, useText } from '../kit';
 import { useNav } from '../nav';
 import { DesignPreview, usePrepared, useTemplateInk } from '../pictures';
 import { Icon } from '../print';
@@ -61,7 +61,7 @@ function LayoutChips({ e, layout, setLayout }: { e: CatalogEntry; layout: number
       <Label>Layout</Label>
       <Row gap={8}>
         {Array.from({ length: e.def.layouts }, (_, i) => (
-          <Chip key={i} label={String(i + 1)} on={layout === i} onPress={() => setLayout(i)} />
+          <Chip key={i} label={`Layout ${i + 1}`} on={layout === i} onPress={() => setLayout(i)} />
         ))}
       </Row>
     </Col>
@@ -165,8 +165,15 @@ export function ListScreen({ id }: { id: string }) {
       {others.map((f) => (
         <FieldEditor key={f.key} f={f} values={values} onChange={setValues} />
       ))}
-      {listField && <FieldEditor f={listField} values={values} onChange={setValues} />}
-      <Btn kind="ghost" label={showStyle ? 'Hide style' : 'Style'} onPress={() => setShowStyle((x) => !x)} />
+      {listField && (
+        <FieldEditor
+          f={listField}
+          values={values}
+          onChange={setValues}
+          actions={<Btn small kind="secondary" icon={showStyle ? 'close' : undefined} label={showStyle ? 'Hide style' : 'Style'} onPress={() => setShowStyle((x) => !x)} />}
+        />
+      )}
+      {!listField && <Btn kind="secondary" label={showStyle ? 'Hide style' : 'Style'} onPress={() => setShowStyle((x) => !x)} />}
       {showStyle && (
         <Col gap={14}>
           <LayoutChips e={e} layout={layout} setLayout={setLayout} />
@@ -263,8 +270,13 @@ export function BoardScreen({ id }: { id: string }) {
                       >
                         <View style={{ width: 18, alignSelf: 'stretch', backgroundColor: BADGE_INK[o.color ?? 'black'] ?? INK.black, borderRightWidth: 2, borderColor: INK.black }} />
                         <Text style={[tx.strong, { flex: 1, fontSize: 22, color: INK.black }]}>{o.text}</Text>
-                        <Text style={[tx.meta, { color: INK.black }]}>{busy ? 'SENDING…' : on ? 'ON BADGE' : ''}</Text>
-                        {on && !busy ? <Icon name="check" size={20} stroke={3} /> : null}
+                        {busy ? <Text style={[tx.meta, { color: INK.black }]}>SENDING…</Text> : null}
+                        {on && !busy ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: INK.black, paddingHorizontal: 10, paddingVertical: 5, transform: [{ rotate: '-3deg' }] }}>
+                            <Icon name="check" size={14} stroke={3.2} color={INK.yellow} />
+                            <Meta text="ON BADGE" color={INK.paper} />
+                          </View>
+                        ) : null}
                       </View>
                     </View>
                   )}
@@ -272,7 +284,7 @@ export function BoardScreen({ id }: { id: string }) {
               );
             })}
           </View>
-          <Btn kind="ghost" label="+ Add your own" onPress={() => setEditing(true)} />
+          <Btn kind="secondary" icon="plus" label="Add your own" onPress={() => setEditing(true)} />
         </>
       )}
     </Screen>

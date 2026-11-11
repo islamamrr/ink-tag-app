@@ -4,16 +4,16 @@
 // keeps the flood ink of the screen it came from.
 
 import { useEffect, useState } from 'react';
-import { Animated, useWindowDimensions, View } from 'react-native';
+import { Animated, Text, useWindowDimensions, View } from 'react-native';
 
 import type { Design } from '../../core';
 import { Bar, Btn, Chip, Col, H, Label, ListRow, Problem, Row, Screen, Sheet, T } from '../kit';
 import { useNav } from '../nav';
 import { DesignPreview, ItemThumb, usePrepared } from '../pictures';
-import { Icon } from '../print';
+import { Icon, useReduceMotion } from '../print';
 import { SlideToInk, Stages, useSender } from '../sending';
 import { useServices } from '../services';
-import { type Flood, INK } from '../theme';
+import { type Flood, FONT, INK } from '../theme';
 
 export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?: string; flood?: Flood }) {
   const { app, badge } = useServices();
@@ -48,7 +48,7 @@ export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?
   // Done: back to the Gallery shortly after, so the person sees it land.
   useEffect(() => {
     if (sender.phase !== 'done') return;
-    const t = setTimeout(finish, 1200);
+    const t = setTimeout(finish, 2200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sender.phase]);
@@ -142,13 +142,20 @@ export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?
         <View>
           {picture}
           {drawing && <Wipe seconds={p?.secondsLeft ?? 20} done={sender.phase === 'done'} />}
+          {sender.phase === 'done' && <Printed />}
         </View>
       </View>
       {drawing ? (
         <Col gap={10}>
           <H size={30}>{sender.phase === 'done' ? 'On your badge.' : 'Safe to walk away'}</H>
-          <T>Sent and checked. The badge is drawing it now.</T>
-          <T muted>The screen flashes a few times. That&apos;s normal for this kind of screen and takes about 20 seconds. You can close the app.</T>
+          {sender.phase === 'done' ? (
+            <T>Drawn, checked and saved to your Gallery.</T>
+          ) : (
+            <>
+              <T>Sent and checked. The badge is drawing it now.</T>
+              <T muted>The screen flashes a few times. That&apos;s normal for this kind of screen and takes about 20 seconds. You can close the app.</T>
+            </>
+          )}
           <Btn label="Back to Gallery" onPress={finish} />
         </Col>
       ) : (
@@ -170,6 +177,58 @@ export function SendScreen({ design, itemId, flood }: { design?: Design; itemId?
         </Col>
       )}
     </Screen>
+  );
+}
+
+const BURST = [INK.red, INK.blue, INK.yellow, INK.green, INK.black, INK.red, INK.yellow, INK.blue, INK.green, INK.black, INK.blue, INK.red];
+
+/** Done: a burst of ink dots and a "Printed" sticker slapped on the corner. */
+function Printed() {
+  const reduce = useReduceMotion();
+  const [t] = useState(() => new Animated.Value(reduce ? 1 : 0));
+  useEffect(() => {
+    if (reduce) return t.setValue(1);
+    const a = Animated.spring(t, { toValue: 1, friction: 6, tension: 120, useNativeDriver: true });
+    a.start();
+    return () => a.stop();
+  }, [reduce, t]);
+  const scale = t.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] });
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
+      {!reduce &&
+        BURST.map((c, i) => {
+          const a = (i / BURST.length) * Math.PI * 2;
+          const r = 120 + (i % 3) * 24;
+          return (
+            <Animated.View
+              key={i}
+              style={{
+                position: 'absolute',
+                width: 12 + (i % 3) * 4,
+                height: 12 + (i % 3) * 4,
+                borderRadius: 10,
+                backgroundColor: c,
+                opacity: t.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 1, 0], extrapolate: 'clamp' }),
+                transform: [
+                  { translateX: t.interpolate({ inputRange: [0, 1], outputRange: [0, Math.cos(a) * r] }) },
+                  { translateY: t.interpolate({ inputRange: [0, 1], outputRange: [0, Math.sin(a) * r] }) },
+                ],
+              }}
+            />
+          );
+        })}
+      <Animated.View
+        accessible
+        accessibilityLabel="Printed"
+        style={{ position: 'absolute', right: -18, top: 18, opacity: t.interpolate({ inputRange: [0, 0.3], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ scale }, { rotate: '8deg' }] }}
+      >
+        <View style={{ position: 'absolute', left: 4, top: 4, right: -4, bottom: -4, backgroundColor: INK.black }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: INK.yellow, borderWidth: 2.5, borderColor: INK.black, paddingHorizontal: 12, paddingVertical: 7 }}>
+          <Icon name="check" size={18} stroke={3.4} />
+          <Text style={{ fontFamily: FONT.display, fontSize: 16, color: INK.black, letterSpacing: 0.5 }}>PRINTED</Text>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 

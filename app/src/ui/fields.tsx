@@ -1,7 +1,7 @@
 // Form controls built from a template's fields, so a template that arrives
 // as data gets its form with no new screen code.
 
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { type Field, formatList, type ListItem, parseList, type Values } from '../core';
@@ -10,7 +10,7 @@ import { Btn, Chips, Col, Field as TextField, Label, Row, T, useText } from './k
 import { Icon } from './print';
 import { BADGE_INK, INK } from './theme';
 
-export function FieldEditor({ f, values, onChange, onBusy }: { f: Field; values: Values; onChange: (v: Values) => void; onBusy?: (b: boolean) => void }) {
+export function FieldEditor({ f, values, onChange, onBusy, actions }: { f: Field; values: Values; onChange: (v: Values) => void; onBusy?: (b: boolean) => void; actions?: ReactNode }) {
   const v = values[f.key] ?? f.default;
   const tx = useText();
   const set = (x: string | boolean | undefined) => onChange({ ...values, [f.key]: x });
@@ -52,7 +52,7 @@ export function FieldEditor({ f, values, onChange, onBusy }: { f: Field; values:
         </Row>
       );
     case 'list':
-      return <ListEditor label={f.label} value={typeof v === 'string' ? v : ''} max={f.max} onChange={set} />;
+      return <ListEditor label={f.label} value={typeof v === 'string' ? v : ''} max={f.max} onChange={set} actions={actions} />;
     default:
       return (
         <TextField
@@ -70,7 +70,22 @@ export function FieldEditor({ f, values, onChange, onBusy }: { f: Field; values:
 }
 
 /** Add, tick, edit, move and remove items. Ticks are kept in the text ("[x] "). */
-export function ListEditor({ label, value, max, onChange, ticks = true }: { label: string; value: string; max?: number; onChange: (v: string) => void; ticks?: boolean }) {
+export function ListEditor({
+  label,
+  value,
+  max,
+  onChange,
+  ticks = true,
+  actions,
+}: {
+  label: string;
+  value: string;
+  max?: number;
+  onChange: (v: string) => void;
+  ticks?: boolean;
+  /** More buttons for the row under the list, after Add and Clear. */
+  actions?: ReactNode;
+}) {
   // Rows are kept here while typing, so emptying a row doesn't remove it.
   const [items, setItems] = useState<ListItem[]>(() => parseList(value));
   const sent = useRef(value);
@@ -91,7 +106,7 @@ export function ListEditor({ label, value, max, onChange, ticks = true }: { labe
     <Col gap={8}>
       <Label>{`${label}${max ? ` · ${items.length} of ${max}` : ''}`}</Label>
       {items.map((it, i) => (
-        <Row key={i} gap={6}>
+        <Row key={i} gap={2}>
           {ticks && (
             <Pressable
               onPress={() => save(items.map((x, j) => (j === i ? { ...x, done: !x.done } : x)))}
@@ -99,7 +114,7 @@ export function ListEditor({ label, value, max, onChange, ticks = true }: { labe
               accessibilityState={{ checked: it.done }}
               hitSlop={8}
               accessibilityLabel={it.text}
-              style={{ width: 34, height: 34, borderWidth: 2, borderColor: INK.black, alignItems: 'center', justifyContent: 'center', backgroundColor: it.done ? INK.yellow : tx.sf.card }}
+              style={{ width: 36, height: 36, borderWidth: 2, borderColor: INK.black, alignItems: 'center', justifyContent: 'center', backgroundColor: it.done ? INK.yellow : tx.sf.card }}
             >
               {it.done && <Icon name="check" size={20} stroke={3.2} />}
             </Pressable>
@@ -111,18 +126,19 @@ export function ListEditor({ label, value, max, onChange, ticks = true }: { labe
               style={it.done ? { textDecorationLine: 'line-through' } : undefined}
             />
           </View>
-          <Pressable onPress={() => i > 0 && save(swap(items, i, i - 1))} hitSlop={6} accessibilityLabel="Move up" accessibilityRole="button" disabled={i === 0} style={{ padding: 4, opacity: i === 0 ? 0.3 : 1 }}>
+          <Pressable onPress={() => i > 0 && save(swap(items, i, i - 1))} hitSlop={6} accessibilityLabel="Move up" accessibilityRole="button" disabled={i === 0} style={{ padding: 10, opacity: i === 0 ? 0.3 : 1 }}>
             <Icon name="up" size={20} color={tx.sf.fg} stroke={2.6} />
           </Pressable>
-          <Pressable onPress={() => save(items.filter((_, j) => j !== i))} hitSlop={6} accessibilityLabel="Remove" accessibilityRole="button" style={{ padding: 4 }}>
+          <Pressable onPress={() => save(items.filter((_, j) => j !== i))} hitSlop={6} accessibilityLabel="Remove" accessibilityRole="button" style={{ padding: 10 }}>
             <Icon name="close" size={20} color={tx.sf.fg} stroke={2.6} />
           </Pressable>
         </Row>
       ))}
       {items.length === 0 && <T muted>Nothing yet.</T>}
-      <Row gap={10}>
+      <Row gap={10} wrap>
         <Btn small icon="plus" label="Add an item" disabled={full} onPress={() => save([...items, { text: `Item ${items.length + 1}`, done: false }])} />
         {ticks && items.some((x) => x.done) && <Btn small kind="ghost" label="Clear ticked" onPress={() => save(items.filter((x) => !x.done))} />}
+        {actions}
       </Row>
     </Col>
   );

@@ -296,7 +296,7 @@ export function TemplatePreview({ id }: { id: string }) {
     );
   const orientation = badge?.orientation ?? 'portrait';
   const w = orientation === 'portrait' ? Math.min(270, width * 0.66) : width - 70;
-  const meta = [e.def.title, inkLine(ink.shares)].filter(Boolean).join(' · ');
+  const meta = inkLine(ink.shares) || e.def.title;
   return (
     <Screen onBack={nav.pop} back="Print" title={meta} flood={ink.flood} footer={<Btn kind="primary" label="Use this template" onPress={() => nav.replace(routeFor(e))} />}>
       <View style={{ alignItems: 'center', gap: 18, paddingTop: 14, paddingBottom: 4 }}>
