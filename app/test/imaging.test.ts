@@ -15,6 +15,7 @@ import {
   PANEL_WIDTH,
   PORTRAIT_HEIGHT,
   PORTRAIT_WIDTH,
+  SCREEN_PALETTE,
 } from '../src/core';
 import { golden, goldenMeta, rgbToRgba } from './helpers';
 
@@ -157,4 +158,15 @@ test('full pipeline on a photo, with timings', () => {
   }
   const big = { width: 1200, height: 900, data: new Uint8Array(1200 * 900 * 4).fill(200) };
   expect(convert(big, { fit: 'cover' }).frame.length).toBe(FRAME_BYTES);
+});
+
+test('the app shows pictures in the screen inks, and the frame is unchanged by that', () => {
+  const src = rgbToRgba(golden('photo_fitted_rgb'), W, H);
+  const r = convertFitted(src);
+  expect(Buffer.from(r.display.data).equals(Buffer.from(frameToRgba(r.frame, 'portrait', undefined, SCREEN_PALETTE).data))).toBe(true);
+  // Every display pixel is one of the six screen inks, never a measured panel colour.
+  const screen = new Set(SCREEN_PALETTE.map((p) => p.rgb.join(',')));
+  for (let i = 0; i < r.display.data.length; i += 4 * 97) expect(screen.has(`${r.display.data[i]},${r.display.data[i + 1]},${r.display.data[i + 2]}`)).toBe(true);
+  // Same codes as the measured palette, so the decoded picture means the same thing.
+  expect(SCREEN_PALETTE.map((p) => [p.name, p.code])).toEqual(PALETTE.map((p) => [p.name, p.code]));
 });

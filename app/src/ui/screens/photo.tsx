@@ -1,10 +1,12 @@
-// The photo editor, flooded in the photo's main ink: the badge's outline is
-// the crop. Drag the picture to move it, hold it to see the original, zoom
-// with the buttons, then a dock for Text, Sticker, Frame and Look (styles,
-// sliders, and the Original / On badge compare).
+// The photo editor, flooded in the photo's main ink: the badge's screen is
+// the crop. Pinch and drag the plain photo (fast, no inks); when the fingers
+// lift, it's dithered once. Hold to see the original, double-tap to reset.
+// Then a dock for Text, Sticker, Frame and Look (styles, sliders, and the
+// Original / On badge compare).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Canvas, Image as SkiaImage, type SkImage } from '@shopify/react-native-skia';
+import { type GestureResponderEvent, PanResponder, Pressable, Text, useWindowDimensions, View } from 'react-native';
 
 import {
   type Adjustments,
@@ -22,11 +24,14 @@ import {
   STYLE_NAMES,
   STYLES,
   toneFor,
+  computeFit,
 } from '../../core';
 import { pickPhotos } from '../../services/inkTag';
-import { Btn, Chip, ChipStrip, Col, Field, IconBtn, InkSwatches, Label, Note, Problem, Row, Screen, T, useText } from '../kit';
+import { photoImage } from '../../services/render';
+import { Btn, Chip, ChipStrip, Col, Field, IconBtn, InkSwatches, Label, Meta, Note, Problem, Row, Screen, T, useText } from '../kit';
 import { useNav } from '../nav';
-import { DesignPreview, useFloodOnce, usePrepared } from '../pictures';
+import { BadgeFrame, DesignPreview, DEVICE_BEZEL, useFloodOnce, usePrepared } from '../pictures';
+import { Icon } from '../print';
 import { useServices } from '../services';
 import { INK, inkLine } from '../theme';
 
@@ -82,7 +87,12 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
   const [holding, setHolding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const set = (p: Partial<EditState>) => setE((x) => ({ ...x, ...p }));
+  // After a pinch or drag, the plain photo stays up until its dither is ready; any other edit ends that.
+  const [cropPending, setCropPending] = useState(false);
+  const set = (p: Partial<EditState>, fromCrop = false) => {
+    setE((x) => ({ ...x, ...p }));
+    setCropPending(fromCrop);
+  };
 
   const choose = async () => {
     setBusy(true);
@@ -122,33 +132,9 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
   const { prepared, last } = usePrepared(app, design, 250);
   const ink = useFloodOnce(e.photo, prepared);
   const show = holding || (dock === 'look' && compare) ? 'photo' : 'badge';
-  const previewW = orientation === 'portrait' ? Math.min(240, screenW * 0.6) : screenW - 60;
+  const previewW = orientation === 'portrait' ? Math.min(280, screenW * 0.7) : screenW - 50;
 
-  // Drag the picture under the badge outline.
-  const geo = useRef({ zoom: e.zoom, width: previewW, start: e.crop });
-  useEffect(() => {
-    geo.current.zoom = e.zoom;
-    geo.current.width = previewW;
-  }, [e.zoom, previewW]);
-  // The handlers read geo only while dragging, never during render.
-  // eslint-disable-next-line react-hooks/refs
-  const [pan] = useState(() =>
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) + Math.abs(g.dy) > 4,
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => {
-        setE((x) => {
-          geo.current.start = x.crop;
-          return x;
-        });
-      },
-      onPanResponderMove: (_, g) => {
-        const { width, zoom, start } = geo.current;
-        const k = 1 / (width * Math.max(1, zoom));
-        setE((x) => ({ ...x, crop: { x: clamp(start.x - g.dx * k), y: clamp(start.y - g.dy * k) } }));
-      },
-    }),
-  );
+  const photoImg = usePhotoImage(e.photo);
 
   return (
     <Screen
@@ -162,27 +148,39 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
     >
       {fromShare && <Note>From Photos{badge ? `, going to ${badge.name}` : ''}.</Note>}
       {error && <Problem title="Couldn't open that photo" onClose={() => setError(null)}>{error}</Problem>}
-      <View style={{ alignItems: 'center', gap: 14, paddingTop: 10 }} {...pan.panHandlers}>
+      <View style={{ alignItems: 'center', gap: 14, paddingTop: 10 }}>
         {design ? (
-          <Pressable
-            onLongPress={() => setHolding(true)}
-            onPressOut={() => setHolding(false)}
-            delayLongPress={220}
-            accessibilityLabel="Your photo as the badge will show it. Hold to see the original, drag to move it."
+          <PhotoCrop
+            image={photoImg}
+            width={previewW}
+            orientation={orientation}
+            fit={e.fit}
+            zoom={e.zoom}
+            crop={e.crop}
+            inking={cropPending && !prepared}
+            onCommit={(zoom, crop) => set({ zoom, crop }, true)}
+            onHold={setHolding}
           >
-            <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} show={show} tilt={-1.5} shadow={INK.black} />
-          </Pressable>
+            <DesignPreview prepared={prepared ?? last} width={previewW} orientation={orientation} show={show} tilt={-1.5} shadow={INK.black} device />
+          </PhotoCrop>
         ) : (
-          <View style={{ paddingVertical: 40 }}>
-            <Btn kind="primary" icon="camera" label={busy ? 'Opening…' : 'Choose a photo'} busy={busy} onPress={choose} />
-          </View>
+          <Pressable onPress={choose} disabled={busy} accessibilityRole="button" accessibilityLabel="Choose a photo">
+            <BadgeFrame width={previewW} orientation={orientation} tilt={-1.5} shadow={INK.black} device style={{ alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+              <View style={{ position: 'absolute', left: 8, top: 8, right: 8, bottom: 8, borderWidth: 2, borderColor: INK.muted, borderStyle: 'dashed' }} />
+              <Icon name="camera" size={40} />
+              <Meta text={busy ? 'Opening…' : 'Choose a photo'} color={INK.black} align="center" />
+            </BadgeFrame>
+          </Pressable>
         )}
         {design && (
           <View style={{ backgroundColor: 'rgba(24,24,27,0.25)', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 }}>
-            <Label>{show === 'photo' ? 'The original, before the six inks' : 'Hold to see the original · drag to move'}</Label>
+            <Label>{show === 'photo' ? 'The original, before the six inks' : 'Pinch and drag · hold for the original'}</Label>
           </View>
         )}
       </View>
+
+      {design && (
+      <>
 
       <ChipStrip>
         {(['photo', 'text', 'sticker', 'frame', 'look'] as Dock[]).map((d) => (
@@ -199,7 +197,6 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
               <Chip label="Whole photo" on={e.fit === 'contain'} onPress={() => set({ fit: 'contain' })} />
             </Row>
           </Col>
-          <Stepper label="Zoom" value={`${Math.round(e.zoom * 100)}%`} onMinus={() => set({ zoom: Math.max(1, e.zoom - 0.25) })} onPlus={() => set({ zoom: Math.min(4, e.zoom + 0.25) })} />
           <Row gap={10}>
             <Btn small flex icon="camera" label="Change photo" onPress={choose} busy={busy} />
             <Btn small kind="ghost" label="Reset" onPress={() => set({ zoom: 1, crop: { x: 0.5, y: 0.5 }, fit: 'cover' })} />
@@ -234,6 +231,8 @@ export function PhotoScreen({ photo: initialPhoto, scene, style: s0, fromShare }
         </Col>
       )}
       {dock === 'look' && <Look style={style} setStyle={setStyle} adj={adj} setAdj={setAdj} compare={compare} setCompare={setCompare} />}
+      </>
+      )}
     </Screen>
   );
 }
@@ -307,5 +306,197 @@ function InkChips({ value, onChange }: { value: ColorName; onChange: (c: ColorNa
       <Label>Ink</Label>
       <InkSwatches options={INKS} value={value} onChange={onChange} />
     </Col>
+  );
+}
+
+// ------------------------------------------------------------------ crop
+
+const MAX_ZOOM = 4;
+
+/** The source rect the badge shows for this zoom and crop (computeFit's cover maths, kept local so it runs per frame). */
+function windowFor(iw: number, ih: number, aspect: number, zoom: number, crop: { x: number; y: number }) {
+  let w = iw;
+  let h = ih;
+  if (iw / ih > aspect) w = ih * aspect;
+  else h = iw / aspect;
+  w /= zoom;
+  h /= zoom;
+  return { x: (iw - w) * crop.x, y: (ih - h) * crop.y, w, h };
+}
+
+/** Back from a window's top-left to the 0..1 crop, clamped so the photo always covers the badge. */
+function cropFor(iw: number, ih: number, w: number, h: number, x: number, y: number) {
+  return { x: iw - w > 0.5 ? clamp(x / (iw - w)) : 0.5, y: ih - h > 0.5 ? clamp(y / (ih - h)) : 0.5 };
+}
+
+/** The decoded photo for the live crop view. */
+function usePhotoImage(id: string | null) {
+  const { app } = useServices();
+  const [img, setImg] = useState<{ id: string; image: SkImage | null } | null>(null);
+  useEffect(() => {
+    if (!id) return;
+    let live = true;
+    void photoImage(id, (p) => app.library.photo(p)).then((image) => live && setImg({ id, image }));
+    return () => {
+      live = false;
+    };
+  }, [app, id]);
+  return img?.id === id ? img.image : null;
+}
+
+/**
+ * Pinch and drag on the plain photo. While fingers are down (and until the
+ * dither is ready) the badge shows the photo itself, moved and scaled live on
+ * a Skia canvas; nothing is dithered. On release the new zoom and crop are
+ * committed once. Otherwise it shows `children`, the dithered preview.
+ */
+function PhotoCrop({
+  image,
+  width,
+  orientation,
+  fit,
+  zoom,
+  crop,
+  inking,
+  onCommit,
+  onHold,
+  children,
+}: {
+  image: SkImage | null;
+  width: number;
+  orientation: 'portrait' | 'landscape';
+  fit: FitMode;
+  zoom: number;
+  crop: { x: number; y: number };
+  inking: boolean;
+  onCommit: (zoom: number, crop: { x: number; y: number }) => void;
+  onHold: (h: boolean) => void;
+  children: React.ReactNode;
+}) {
+  const aspect = orientation === 'portrait' ? 2 / 3 : 3 / 2;
+  const [live, setLive] = useState<{ zoom: number; crop: { x: number; y: number } } | null>(null);
+  const box = useRef<React.ComponentRef<typeof View>>(null);
+  // Everything the handlers need, read only inside them.
+  const g = useRef({ image, zoom, crop, aspect, fit, onCommit, viewW: 1, viewH: 1, pageX: 0, pageY: 0, start: null as null | { zoom: number; win: { x: number; y: number; w: number; h: number }; mid: { x: number; y: number }; dist: number; touches: number }, cur: null as null | { zoom: number; crop: { x: number; y: number } }, lastTap: 0 });
+  useEffect(() => {
+    Object.assign(g.current, { image, zoom, crop, aspect, fit, onCommit });
+  }, [image, zoom, crop, aspect, fit, onCommit]);
+
+  // The handlers read g only while a finger is down, never during render.
+  // eslint-disable-next-line react-hooks/refs
+  const [pan] = useState(() => {
+    const touchesOf = (ev: GestureResponderEvent) => ev.nativeEvent.touches.length ? ev.nativeEvent.touches : [ev.nativeEvent];
+    const midDist = (t: readonly { pageX: number; pageY: number }[]) => {
+      const a = t[0];
+      const b = t[1] ?? t[0];
+      return { mid: { x: (a.pageX + b.pageX) / 2, y: (a.pageY + b.pageY) / 2 }, dist: Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY) };
+    };
+    const begin = (ev: GestureResponderEvent) => {
+      const s = g.current;
+      if (!s.image) return;
+      const cur = s.cur ?? { zoom: s.zoom, crop: s.crop };
+      const t = touchesOf(ev);
+      const { mid, dist } = midDist(t);
+      s.start = { zoom: cur.zoom, win: windowFor(s.image.width(), s.image.height(), s.aspect, cur.zoom, cur.crop), mid, dist, touches: t.length };
+    };
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: (ev, gs) => g.current.fit === 'cover' && !!g.current.image && (ev.nativeEvent.touches.length > 1 || Math.abs(gs.dx) + Math.abs(gs.dy) > 4),
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (ev) => {
+        onHold(false);
+        box.current?.measure((_x: number, _y: number, w: number, h: number, px: number, py: number) => Object.assign(g.current, { viewW: w || 1, viewH: h || 1, pageX: px, pageY: py }));
+        g.current.cur = null;
+        begin(ev);
+      },
+      onPanResponderMove: (ev) => {
+        const s = g.current;
+        if (!s.image || !s.start) return;
+        const t = touchesOf(ev);
+        // A finger added or lifted: restart from here, so nothing jumps.
+        if (t.length !== s.start.touches) return begin(ev);
+        const iw = s.image.width();
+        const ih = s.image.height();
+        const { mid, dist } = midDist(t);
+        const z = t.length > 1 && s.start.dist > 10 ? Math.max(1, Math.min(MAX_ZOOM, (s.start.zoom * dist) / s.start.dist)) : s.start.zoom;
+        const w0 = s.start.win;
+        const k = w0.w / s.viewW; // source px per screen point at the start
+        // The source point under the fingers' midpoint stays under it.
+        const fx = clamp((s.start.mid.x - s.pageX) / s.viewW);
+        const fy = clamp((s.start.mid.y - s.pageY) / s.viewH);
+        const sx = w0.x + fx * w0.w - (mid.x - s.start.mid.x) * k;
+        const sy = w0.y + fy * w0.h - (mid.y - s.start.mid.y) * k;
+        const nw = windowFor(iw, ih, s.aspect, z, { x: 0.5, y: 0.5 });
+        const next = { zoom: z, crop: cropFor(iw, ih, nw.w, nw.h, sx - fx * nw.w, sy - fy * nw.h) };
+        s.cur = next;
+        setLive(next);
+      },
+      onPanResponderRelease: () => {
+        const s = g.current;
+        s.start = null;
+        if (s.cur) s.onCommit(s.cur.zoom, s.cur.crop);
+        setLive(null);
+      },
+      onPanResponderTerminate: () => {
+        g.current.start = null;
+        setLive(null);
+      },
+    });
+  });
+
+  // Live view: the window of the photo drawn to fill the badge's screen.
+  const showLive = !!image && (live || inking);
+  let draw: { x: number; y: number; w: number; h: number } | null = null;
+  const screenW = width - 2 * Math.max(3, Math.round(width * DEVICE_BEZEL));
+  const screenH = screenW / aspect;
+  if (showLive && image) {
+    const state = live ?? { zoom, crop };
+    if (fit === 'cover') {
+      const win = windowFor(image.width(), image.height(), aspect, state.zoom, state.crop);
+      const k = screenW / win.w;
+      draw = { x: -win.x * k, y: -win.y * k, w: image.width() * k, h: image.height() * k };
+    } else {
+      const { dst } = computeFit(image.width(), image.height(), screenW, screenH, 'contain');
+      draw = { x: dst.x, y: dst.y, w: dst.width, h: dst.height };
+    }
+  }
+
+  const reset = () => onCommit(1, { x: 0.5, y: 0.5 });
+  return (
+    <View {...pan.panHandlers}>
+      <Pressable
+        onPress={() => {
+          const now = Date.now();
+          if (now - g.current.lastTap < 300) reset();
+          g.current.lastTap = now;
+        }}
+        onLongPress={() => !live && onHold(true)}
+        onPressOut={() => onHold(false)}
+        delayLongPress={260}
+        accessibilityLabel="Your photo as the badge will show it. Pinch to zoom, drag to move, double-tap to reset, hold to see the original."
+        accessibilityActions={[{ name: 'zoomIn', label: 'Zoom in' }, { name: 'zoomOut', label: 'Zoom out' }, { name: 'reset', label: 'Reset' }]}
+        onAccessibilityAction={(ev) => {
+          if (ev.nativeEvent.actionName === 'zoomIn') onCommit(Math.min(MAX_ZOOM, zoom + 0.5), crop);
+          else if (ev.nativeEvent.actionName === 'zoomOut') onCommit(Math.max(1, zoom - 0.5), crop);
+          else reset();
+        }}
+      >
+        <View ref={box}>
+          {showLive && draw ? (
+            <BadgeFrame width={width} orientation={orientation} tilt={-1.5} shadow={INK.black} device style={{ backgroundColor: INK.white }}>
+              <Canvas style={{ width: screenW, height: screenH }}>
+                <SkiaImage image={image} x={draw.x} y={draw.y} width={draw.w} height={draw.h} fit="fill" />
+              </Canvas>
+              {inking && !live && (
+                <View style={{ position: 'absolute', right: 6, bottom: 6, backgroundColor: INK.black, paddingHorizontal: 6, paddingVertical: 2 }}>
+                  <Meta text="Inking…" color={INK.paper} size={10} />
+                </View>
+              )}
+            </BadgeFrame>
+          ) : (
+            children
+          )}
+        </View>
+      </Pressable>
+    </View>
   );
 }

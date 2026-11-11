@@ -4,7 +4,7 @@
 // ink it floods with. Screens only use what's here and in print.tsx.
 
 import { StatusBar } from 'expo-status-bar';
-import { createContext, type ReactNode, useContext } from 'react';
+import { createContext, type ReactNode, useContext, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -21,8 +21,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Ground, HardShadow, Icon, type IconName, OffsetText, OnSurface, useSurface } from './print';
-import { BADGE_INK, type Flood, FONT, INK, PAPER, type Surface, surfaceFor } from './theme';
+import { Dots, HardShadow, Icon, type IconName, InkStrip, OffsetText, OnSurface, useSurface, WipeGround, Words } from './print';
+import { BADGE_INK, type Flood, FONT, INK, PAPER, SHADOW, SPACE, type Surface, surfaceFor, TYPE } from './theme';
 
 export { useSurface } from './print';
 
@@ -75,7 +75,7 @@ export function Screen({
     <OnSurface surface={sf}>
       <View style={{ flex: 1, backgroundColor: sf.ground, paddingTop: insets.top }}>
         {frame.active && <StatusBar style={sf.light ? 'light' : 'dark'} />}
-        <Ground surface={sf} />
+        <WipeGround surface={sf} />
         {(title || brand || onBack || right) && (
           <View style={st.header}>
             {onBack ? (
@@ -129,7 +129,7 @@ export function Wordmark({ size = 26 }: { size?: number }) {
 }
 
 /** A heading. On a flood (or with `display`) it's the display face, off-register. */
-export function H({ children, size = 26, display, center }: { children: ReactNode; size?: number; display?: boolean; center?: boolean }) {
+export function H({ children, size = TYPE.headingL, display, center }: { children: ReactNode; size?: number; display?: boolean; center?: boolean }) {
   const sf = useSurface();
   if (display || sf.flood) {
     const k = Math.round(size * 0.78);
@@ -154,7 +154,15 @@ export const T = ({ children, muted, bold, center, size }: { children: ReactNode
 /** A small mono caps line: field labels, counts, meta. */
 export const Label = ({ children, muted, center }: { children: ReactNode; muted?: boolean; center?: boolean }) => {
   const sf = useSurface();
-  return <Text style={[st.meta, { color: muted ? sf.muted : sf.fg, textAlign: center ? 'center' : 'left' }]}>{typeof children === 'string' ? children.toUpperCase() : children}</Text>;
+  const style = [st.meta, { color: muted ? sf.muted : sf.fg, textAlign: center ? 'center' : 'left' }] as TextStyle[];
+  if (typeof children === 'string') return <Words text={children.toUpperCase()} style={style} align={center ? 'center' : 'left'} />;
+  return <Text style={style}>{children}</Text>;
+};
+
+/** A mono caps line in any colour, with tight word gaps: tags under tiles, counts, status words. */
+export const Meta = ({ text, color, size = TYPE.label, align }: { text: string; color?: string; size?: number; align?: 'left' | 'center' | 'right' }) => {
+  const sf = useSurface();
+  return <Words text={text.toUpperCase()} style={[st.meta, { fontSize: size, color: color ?? sf.muted }]} align={align} />;
 };
 
 /** A section heading with an optional mono link on the right ("ALL PHOTOS"). */
@@ -165,7 +173,7 @@ export function Section({ title, link, onLink }: { title: string; link?: string;
       <H size={24}>{title}</H>
       {link && onLink && (
         <Pressable onPress={onLink} hitSlop={10} accessibilityRole="button" style={{ paddingVertical: 6 }}>
-          <Text style={[st.meta, { color: sf.flood ? sf.fg : INK.blue }]}>{link.toUpperCase()}</Text>
+          <Words text={link.toUpperCase()} style={[st.meta, { color: sf.flood ? sf.fg : INK.blue }]} />
         </Pressable>
       )}
     </Row>
@@ -210,7 +218,7 @@ export function Btn({
 }) {
   const sf = useSurface();
   const off = disabled || busy;
-  const h = small ? 42 : 54;
+  const h = small ? 44 : 54;
   const primary = kind === 'primary';
   // Paper: the main button is blue ink with a black shadow. On a flood: paper, with the second ink behind.
   const face: ViewStyle = primary
@@ -230,17 +238,17 @@ export function Btn({
     <Pressable onPress={onPress} disabled={off} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!off, busy: !!busy }} style={[flex && { flex: 1 }, off && { opacity: 0.45 }]}>
       {({ pressed }) => (
         <View>
-          {shadow && <View style={{ position: 'absolute', left: 4, top: 3, right: -4, bottom: -3, borderRadius: h / 2, backgroundColor: shadow }} />}
+          {shadow && <View style={{ position: 'absolute', left: SHADOW.card, top: 3, right: -SHADOW.card, bottom: -3, borderRadius: h / 2, backgroundColor: shadow }} />}
           <View
             style={[
               st.btn,
-              { minHeight: h, borderRadius: h / 2, paddingHorizontal: small ? 16 : 22 },
+              { minHeight: h, borderRadius: h / 2, paddingHorizontal: small ? (flex ? 8 : 16) : 22 }, small && { gap: 6 },
               face,
               pressed && (shadow ? { transform: [{ translateX: 3 }, { translateY: 2 }] } : { opacity: 0.7 }),
             ]}
           >
             {busy ? <ActivityIndicator color={color} size="small" /> : icon ? <Icon name={icon} size={small ? 18 : 22} color={color} /> : null}
-            <Text style={[st.btnText, { color, fontSize: small ? 18 : primary ? 23 : 20 }, kind === 'ghost' && { textDecorationLine: 'underline' }]} numberOfLines={1}>
+            <Text style={[st.btnText, { color, fontSize: small ? TYPE.body : primary ? TYPE.headingM : 20 }, kind === 'ghost' && { textDecorationLine: 'underline' }]} numberOfLines={1}>
               {label}
             </Text>
           </View>
@@ -274,7 +282,7 @@ export function IconBtn({ icon, label, onPress, tone, fill }: { icon: IconName; 
   );
 }
 
-export function Chip({ label, on, onPress, swatch }: { label: string; on?: boolean; onPress?: () => void; swatch?: string }) {
+export function Chip({ label, on, onPress, swatch, swatches }: { label: string; on?: boolean; onPress?: () => void; swatch?: string; swatches?: string[] }) {
   const sf = useSurface();
   const yellowFlood = sf.flood === 'yellow';
   const face: ViewStyle = on
@@ -290,9 +298,16 @@ export function Chip({ label, on, onPress, swatch }: { label: string; on?: boole
   const shadow = on ? (sf.flood ? (yellowFlood ? INK.blue : INK.black) : INK.blue) : null;
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!on }} accessibilityLabel={label} hitSlop={4}>
-      {shadow ? <View style={{ position: 'absolute', left: 3, top: 2, right: -3, bottom: -2, borderRadius: 20, backgroundColor: shadow }} /> : null}
+      {shadow ? <View style={{ position: 'absolute', left: SHADOW.chipX, top: SHADOW.chipY, right: -SHADOW.chipX, bottom: -SHADOW.chipY, borderRadius: 22, backgroundColor: shadow }} /> : null}
       <View style={[st.chip, face]}>
         {swatch && <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: swatch, borderWidth: 1.5, borderColor: INK.black }} />}
+        {swatches && swatches.length > 0 && (
+          <View style={{ flexDirection: 'row' }}>
+            {swatches.map((c, i) => (
+              <View key={i} style={{ width: 14, height: 14, borderRadius: 7, marginLeft: i ? -4 : 0, backgroundColor: c, borderWidth: 1.5, borderColor: INK.black }} />
+            ))}
+          </View>
+        )}
         <Text style={[st.chipText, { color }]} numberOfLines={1}>
           {label}
         </Text>
@@ -306,14 +321,14 @@ export function Chips<V extends string | number>({
   value,
   onChange,
 }: {
-  options: { value: V; label: string }[];
+  options: { value: V; label: string; swatches?: string[] }[];
   value: V | undefined;
   onChange: (v: V) => void;
 }) {
   return (
     <Row wrap gap={8}>
       {options.map((o) => (
-        <Chip key={String(o.value)} label={o.label} on={o.value === value} onPress={() => onChange(o.value)} />
+        <Chip key={String(o.value)} label={o.label} swatches={o.swatches} on={o.value === value} onPress={() => onChange(o.value)} />
       ))}
     </Row>
   );
@@ -356,7 +371,7 @@ export function Field({ label, ...p }: TextInputProps & { label?: string }) {
   const sf = useSurface();
   return (
     <View style={{ gap: 6 }}>
-      {label && <Text style={[st.meta, { color: sf.fg }]}>{label.toUpperCase()}</Text>}
+      {label && <Words text={label.toUpperCase()} style={[st.meta, { color: sf.fg }]} />}
       <TextInput
         placeholderTextColor="#8A857A"
         selectionColor={INK.blue}
@@ -392,9 +407,9 @@ export function ListRow({
       </View>
       {right}
       {value !== undefined ? (
-        <Text style={[st.meta, { color: sf.muted, maxWidth: '45%', textAlign: 'right' }]} numberOfLines={2}>
-          {value}
-        </Text>
+        <View style={{ maxWidth: '45%' }}>
+          <Words text={value.toUpperCase()} style={[st.meta, { color: sf.muted }]} align="right" />
+        </View>
       ) : null}
       {onPress ? <Icon name="next" size={18} color={sf.fg} stroke={2.6} /> : null}
     </>
@@ -437,7 +452,7 @@ export function Problem({ title, children, action, onAction, onClose }: { title:
   const on = useSurface();
   const sf = cardSurface(on);
   return (
-    <HardShadow x={4} y={4} color={on.flood === 'red' ? INK.black : INK.red}>
+    <HardShadow x={SHADOW.card} y={SHADOW.card} color={on.flood === 'red' ? INK.black : INK.red}>
       <OnSurface surface={sf}>
         <View style={[st.box, { backgroundColor: sf.ground }]} accessibilityRole="alert">
           <Row>
@@ -463,7 +478,7 @@ export function Problem({ title, children, action, onAction, onClose }: { title:
 /** A confirmation, stuck on like a yellow sticker ("On your badge. Sent in 26 s."). */
 export function Note({ children, onClose }: { children: ReactNode; onClose?: () => void }) {
   return (
-    <HardShadow x={3} y={3} style={{ transform: [{ rotate: '-0.6deg' }] }}>
+    <HardShadow x={SHADOW.card} y={SHADOW.card} style={{ transform: [{ rotate: '-0.6deg' }] }}>
       <View style={[st.box, { backgroundColor: INK.yellow, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 }]} accessibilityLiveRegion="polite">
         <Text style={[st.rowLabel, { flex: 1, color: INK.black }]}>{children}</Text>
         {onClose && (
@@ -480,10 +495,10 @@ export function Note({ children, onClose }: { children: ReactNode; onClose?: () 
 export function Card({ children, onPress, style, tilt = 0, shadow = INK.black, label }: { children: ReactNode; onPress?: () => void; style?: ViewStyle; tilt?: number; shadow?: string | null; label?: string }) {
   const on = useSurface();
   const sf = cardSurface(on);
-  const face = (pressed: boolean) => [st.card, { backgroundColor: sf.ground }, style, pressed && shadow ? { transform: [{ translateX: 3 }, { translateY: 3 }] } : null];
+  const face = (pressed: boolean) => [st.card, { backgroundColor: sf.ground }, style, pressed && shadow ? { transform: [{ translateX: SHADOW.card - 1 }, { translateY: SHADOW.card - 1 }] } : pressed ? { opacity: 0.7 } : null];
   const body = (pressed: boolean) => (
     <View style={tilt ? { transform: [{ rotate: `${tilt}deg` }] } : undefined}>
-      {shadow && <View style={{ position: 'absolute', left: 5, top: 5, right: -5, bottom: -5, backgroundColor: shadow }} />}
+      {shadow && <View style={{ position: 'absolute', left: SHADOW.card, top: SHADOW.card, right: -SHADOW.card, bottom: -SHADOW.card, backgroundColor: shadow }} />}
       <OnSurface surface={sf}>
         <View style={face(pressed)}>{children}</View>
       </OnSurface>
@@ -517,9 +532,35 @@ export function Bar({ value }: { value: number }) {
   );
 }
 
-/** Where a picture will be, while it's drawn. */
+/** Where a picture will be, while it's drawn: paper with a faint halftone fading down. */
 export function Placeholder({ style, label }: { style?: ViewStyle; label?: string }) {
-  return <View style={[st.placeholder, style]}>{label ? <Text style={[st.meta, { color: INK.muted, textAlign: 'center' }]}>{label.toUpperCase()}</Text> : null}</View>;
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  return (
+    <View style={[st.placeholder, style]} onLayout={(e) => setSize({ w: Math.ceil(e.nativeEvent.layout.width), h: Math.ceil(e.nativeEvent.layout.height) })}>
+      {size.w > 0 && <Dots width={size.w} height={size.h} spacing={7} radius={1.6} color={INK.black} alpha={0.14} fadeTo={size.h} style={{ left: 0, top: 0 }} />}
+      {label ? <Words text={label.toUpperCase()} style={[st.meta, { color: INK.muted }]} align="center" /> : null}
+    </View>
+  );
+}
+
+/** Nothing here yet: a small halftone badge, one bold line, one muted line, one button. Every empty state looks like this. */
+export function EmptyState({ title, children, action, onAction, icon = 'badge' }: { title: string; children?: string; action?: string; onAction?: () => void; icon?: IconName }) {
+  const sf = useSurface();
+  return (
+    <View style={{ alignItems: 'center', gap: SPACE.m, paddingVertical: SPACE.xl, paddingHorizontal: SPACE.l }}>
+      <View style={{ width: 74, height: 104, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ position: 'absolute', left: SHADOW.card, top: SHADOW.card, right: -SHADOW.card, bottom: -SHADOW.card, backgroundColor: INK.black }} />
+        <View style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: sf.flood ? sf.card : INK.white, borderWidth: 2, borderColor: INK.black, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+          <Dots width={74} height={104} spacing={7} radius={2} color={sf.flood ? INK[sf.flood] : INK.blue} alpha={0.5} fadeTo={104} style={{ left: 0, top: 0 }} />
+          <Icon name={icon} size={30} color={INK.black} />
+        </View>
+      </View>
+      <InkStrip size={10} gap={3} style={{ marginTop: SPACE.s }} />
+      <Text style={{ fontFamily: FONT.black, fontSize: TYPE.headingM, lineHeight: TYPE.headingM * 1.1, color: sf.fg, textAlign: 'center' }}>{title}</Text>
+      {children ? <Text style={{ fontFamily: FONT.bold, fontSize: TYPE.body, lineHeight: TYPE.body * 1.2, color: sf.muted, textAlign: 'center' }}>{children}</Text> : null}
+      {action && onAction ? <Btn kind="primary" label={action} onPress={onAction} /> : null}
+    </View>
+  );
 }
 
 /** A bottom sheet over the screen, always paper. */
@@ -559,21 +600,21 @@ export function withAlpha(hex: string, a: number) {
 const st = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8, minHeight: 60 },
   title: { fontFamily: FONT.black, fontSize: 34, lineHeight: 38, includeFontPadding: false },
-  meta: { fontFamily: FONT.monoBold, fontSize: 12, letterSpacing: 0.4 },
-  body: { paddingHorizontal: 20, paddingTop: 8 },
+  meta: { fontFamily: FONT.monoBold, fontSize: TYPE.label, letterSpacing: 0.4 },
+  body: { paddingHorizontal: SPACE.side, paddingTop: SPACE.s },
   footer: { paddingHorizontal: 20, paddingTop: 12, gap: 10 },
-  small: { fontFamily: FONT.bold, fontSize: 16, lineHeight: 19 },
+  small: { fontFamily: FONT.bold, fontSize: TYPE.small, lineHeight: 19 },
   rowLabel: { fontFamily: FONT.heavy, fontSize: 19, lineHeight: 23, color: INK.black },
   btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   btnText: { fontFamily: FONT.black, includeFontPadding: false },
-  chip: { minHeight: 40, borderWidth: 2, borderRadius: 20, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  chip: { minHeight: 44, borderWidth: 2, borderRadius: 22, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', gap: 7 },
   chipText: { fontFamily: FONT.heavy, fontSize: 17, includeFontPadding: false },
   field: { minHeight: 52, borderWidth: 2, borderColor: INK.black, paddingHorizontal: 14, fontFamily: FONT.heavy, fontSize: 21, color: INK.black },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, borderBottomWidth: 1.5, paddingVertical: 8 },
   box: { borderWidth: 2, borderColor: INK.black, padding: 14, gap: 8 },
   card: { borderWidth: 2, borderColor: INK.black, padding: 14, gap: 8 },
   barTrack: { height: 16, borderWidth: 2, borderColor: INK.black, overflow: 'hidden' },
-  placeholder: { backgroundColor: '#E9E4DA', alignItems: 'center', justifyContent: 'center' },
+  placeholder: { backgroundColor: INK.paper, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   dim: { flex: 1, backgroundColor: 'rgba(24,24,27,0.45)' },
   sheet: { backgroundColor: INK.paper, borderTopWidth: 2, borderColor: INK.black, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingTop: 12, gap: 12, maxHeight: '85%' },
   grab: { width: 44, height: 5, borderRadius: 3, backgroundColor: INK.black, alignSelf: 'center' },

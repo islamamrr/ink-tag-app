@@ -24,9 +24,25 @@
  ],
  "packs": [
   {
+   "id": "colour",
+   "title": "Colour pack",
+   "description": "Templates that use three inks at once: name blocks, a party invite, a weekly planner, a sale sign, a hello sticker and a mood board. Pick a colour scheme for each.",
+   "tagline": "Name blocks, invites, planner, sale, mood board",
+   "added": "2026-11-11",
+   "templates": [
+    "colour-name",
+    "party-invite",
+    "weekly-planner",
+    "sale-sign",
+    "hello-sticker",
+    "mood-board"
+   ]
+  },
+  {
    "id": "desk",
    "title": "Desk pack",
    "description": "For the badge that lives by your monitor: a to-do list, a status board, a clock and a countdown.",
+   "tagline": "To-do list, status board, clock, countdown",
    "added": "2026-11-03",
    "templates": [
     "todo",
@@ -40,6 +56,7 @@
    "id": "shop",
    "title": "Shop counter pack",
    "description": "Open and closed signs, price tags, today's menu and guest Wi-Fi.",
+   "tagline": "Open signs, price tags, menu, guest Wi-Fi",
    "added": "2026-10-20",
    "templates": [
     "open-closed",
@@ -52,6 +69,7 @@
    "id": "events",
    "title": "Events pack",
    "description": "Conference badges, table numbers, race bibs and tickets.",
+   "tagline": "Conference badges, tables, race bibs, tickets",
    "added": "2026-10-01",
    "templates": [
     "conference-badge",
@@ -64,6 +82,7 @@
  ],
  "popular": [
   "name-badge",
+  "colour-name",
   "todo",
   "clock",
   "status-board",
@@ -1850,6 +1869,123 @@
      ]
     }
    ]
+  },
+  {
+   "builtin": "colour-name",
+   "category": [
+    "work",
+    "fun"
+   ],
+   "tags": [
+    "name",
+    "colour",
+    "blocks",
+    "lanyard"
+   ],
+   "sample": {
+    "name": "Sam Ortiz",
+    "role": "Product designer",
+    "scheme": "riso"
+   },
+   "fills": "Your name in three inks"
+  },
+  {
+   "builtin": "party-invite",
+   "category": [
+    "events",
+    "fun"
+   ],
+   "tags": [
+    "party",
+    "invite",
+    "birthday",
+    "colour"
+   ],
+   "sample": {
+    "title": "Birthday party",
+    "when": "Sat 14 Dec · 19:00",
+    "where": "Our place",
+    "host": "Sam & Lee",
+    "scheme": "pop"
+   },
+   "fills": "What, when, where and who from"
+  },
+  {
+   "builtin": "weekly-planner",
+   "category": [
+    "everyday",
+    "home"
+   ],
+   "tags": [
+    "week",
+    "planner",
+    "days",
+    "colour"
+   ],
+   "sample": {
+    "title": "This week",
+    "days": "Gym\nTeam lunch\nDentist 3pm\nFocus day\nDrinks\nMarket\nRest",
+    "scheme": "garden"
+   },
+   "fills": "One line for each day"
+  },
+  {
+   "builtin": "sale-sign",
+   "category": [
+    "home"
+   ],
+   "tags": [
+    "sale",
+    "shop",
+    "discount",
+    "colour"
+   ],
+   "sample": {
+    "big": "SALE",
+    "off": "−30%",
+    "line": "Today only",
+    "scheme": "pop"
+   },
+   "fills": "Big words, discount, small print"
+  },
+  {
+   "builtin": "hello-sticker",
+   "category": [
+    "events",
+    "fun"
+   ],
+   "tags": [
+    "hello",
+    "name",
+    "sticker",
+    "colour"
+   ],
+   "sample": {
+    "name": "Sam",
+    "scheme": "riso"
+   },
+   "fills": "Just your name"
+  },
+  {
+   "builtin": "mood-board",
+   "category": [
+    "fun",
+    "everyday"
+   ],
+   "tags": [
+    "words",
+    "mood",
+    "poster",
+    "colour"
+   ],
+   "sample": {
+    "w1": "Make",
+    "w2": "Things",
+    "w3": "With",
+    "w4": "Joy",
+    "scheme": "sea"
+   },
+   "fills": "Four words in four blocks"
   }
  ]
 }

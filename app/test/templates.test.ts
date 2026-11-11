@@ -29,7 +29,7 @@ const texts = (s: Scene) => s.layers.flatMap((l) => (l.type === 'text' ? [l.text
 test('the bundled catalogue loads with nothing skipped', () => {
   expect(cat.skipped).toEqual([]);
   expect(cat.entries.length).toBeGreaterThanOrEqual(20);
-  expect(cat.newest()?.id).toBe('desk');
+  expect(cat.newest()?.id).toBe('colour');
   for (const p of cat.packs) for (const id of p.templates) expect(cat.get(id)).toBeDefined();
   // Only behaviours today's firmware can do.
   for (const e of cat.entries) {
@@ -53,6 +53,23 @@ test('every template draws its sample, upright and sideways, in every layout', (
           }
       }
     }
+  }
+});
+
+test('the colour pack uses three inks, and the scheme picks which', () => {
+  const colour = cat.packs.find((p) => p.id === 'colour')!;
+  expect(colour.templates.length).toBe(6);
+  for (const id of colour.templates) {
+    const e = cat.get(id)!;
+    const scheme = e.def.fields.find((f) => f.key === 'scheme')!;
+    expect(scheme.options!.every((o) => o.inks && o.inks.length === 3)).toBe(true);
+    const used = (sc: Scene) =>
+      new Set(sc.layers.flatMap((l) => ('color' in l && l.color ? [l.color] : 'fill' in l && typeof l.fill === 'string' ? [l.fill] : [])));
+    const riso = used(e.def.build(withDefaults(e.def, { ...e.sample, scheme: 'riso' }), { orientation: 'portrait', layout: 0 }));
+    const sea = used(e.def.build(withDefaults(e.def, { ...e.sample, scheme: 'sea' }), { orientation: 'portrait', layout: 0 }));
+    const inksOf = (s: Set<unknown>) => [...s].filter((c) => c !== 'black' && c !== 'white');
+    expect(inksOf(riso).length).toBeGreaterThanOrEqual(2);
+    expect(riso).not.toEqual(sea);
   }
 });
 

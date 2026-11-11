@@ -23,4 +23,31 @@ module.exports = defineConfig([
       ],
     },
   },
+  {
+    // The UI shows pictures in the bright screen inks (Converted.display,
+    // SCREEN_PALETTE). The measured panel colours look washed out on a phone
+    // screen, so only the badge test screen may use them.
+    files: ['src/ui/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/core', '**/core/**'],
+              importNames: ['PALETTE'],
+              message: 'Show pictures in SCREEN_PALETTE (Converted.display), not the measured panel colours.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[property.name='preview'][object.property.name='converted']",
+          message: 'converted.preview is in the dull measured panel colours. Use converted.display.',
+        },
+      ],
+    },
+  },
 ]);

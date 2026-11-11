@@ -31,7 +31,8 @@ export interface Field {
   kind: FieldKind;
   default?: string | boolean;
   placeholder?: string;
-  options?: { value: string; label: string }[];
+  /** choice: the options. `inks` shows them as ink swatches (colour schemes). */
+  options?: { value: string; label: string; inks?: ColorName[] }[];
   /** The scene is still drawn without it, but the form should ask. */
   required?: boolean;
   /** list: the most items the layout has room for. */
@@ -603,6 +604,232 @@ export function collageCells(n: number, layout: number, W: number, H: number, g:
   return [...split(rows[0], 2, !tall), ...split(rows[1], 2, !tall)];
 }
 
+// ---------------------------------------------------------------- colour pack
+
+/**
+ * Colour schemes: two or three print inks used together. Blocks of ink are
+ * always separated by black, so inks of similar lightness (red and green,
+ * blue and green) never touch.
+ */
+export const SCHEMES: { value: string; label: string; inks: ColorName[] }[] = [
+  { value: 'riso', label: 'Riso', inks: ['red', 'yellow', 'blue'] },
+  { value: 'pop', label: 'Pop', inks: ['yellow', 'blue', 'red'] },
+  { value: 'garden', label: 'Garden', inks: ['green', 'yellow', 'red'] },
+  { value: 'sea', label: 'Sea', inks: ['blue', 'green', 'yellow'] },
+];
+
+const schemeField: Field = {
+  key: 'scheme',
+  label: 'Colours',
+  kind: 'choice',
+  default: 'riso',
+  options: SCHEMES.map(({ value, label, inks }) => ({ value, label, inks })),
+};
+
+/** The scheme's inks, cycled: ink(v, 0), ink(v, 1), … */
+const inks = (v: Values): ColorName[] => (SCHEMES.find((s) => s.value === str(v, 'scheme', 'riso')) ?? SCHEMES[0]).inks;
+
+/** Splits a box into k parts along its long side (or the given way), `g` apart. */
+const splitBox = (b: Box, k: number, vertical: boolean, g: number): Box[] =>
+  Array.from({ length: k }, (_, i) =>
+    vertical
+      ? { x: b.x, y: b.y + i * ((b.height + g) / k), width: b.width, height: (b.height + g) / k - g }
+      : { x: b.x + i * ((b.width + g) / k), y: b.y, width: (b.width + g) / k - g, height: b.height },
+  );
+
+/** A filled block of ink with centred words in the ink that reads on it. */
+function inkBlock(c: Canvas, b: Box, color: ColorName, words: string, size: number, more: Partial<Extract<Layer, { type: 'text' }>> = {}) {
+  c.add({ type: 'rect', box: c.box(b.x, b.y, b.width, b.height), color });
+  if (words) {
+    const p = Math.min(b.width, b.height) * 0.08;
+    c.add(text(c.box(b.x + p, b.y + p, b.width - p * 2, b.height - p * 2), words, size, inkOn(color), { weight: 'bold', align: 'center', valign: 'middle', maxLines: 3, ...more }));
+  }
+}
+
+const colourName: TemplateDef = {
+  id: 'colour-name',
+  title: 'Colour name badge',
+  description: 'Your name in blocks of colour, one word per ink.',
+  uses: ['lanyard', 'bag'],
+  layouts: 2,
+  fields: [
+    { key: 'name', label: 'Name', kind: 'text', required: true, default: '' },
+    { key: 'role', label: 'Small print', kind: 'text', placeholder: 'What you do, or where' },
+    schemeField,
+  ],
+  build(v, { orientation = 'portrait', layout = 0 } = {}) {
+    const c = new Canvas(orientation);
+    const { W, H } = c;
+    const g = Math.round(Math.min(W, H) * 0.02);
+    const k = inks(v);
+    const words = (str(v, 'name') || 'Your Name').split(/\s+/).slice(0, 3);
+    const role = str(v, 'role');
+    const foot = role ? H * 0.14 : 0;
+    const area: Box = { x: g, y: g, width: W - g * 2, height: H - g * 2 - (role ? foot + g : 0) };
+    const vertical = layout === 0 ? !c.landscape : c.landscape;
+    const cells = splitBox(area, words.length, vertical, g);
+    cells.forEach((b, i) => inkBlock(c, b, k[i % k.length], words[i], Math.min(b.height * 0.5, (b.width / Math.max(3, words[i].length)) * 1.6), { maxLines: 1 }));
+    if (role) {
+      c.add({ type: 'rect', box: c.box(g, H - g - foot, W - g * 2, foot), color: 'white' });
+      c.add(text(c.box(g * 3, H - g - foot, W - g * 6, foot), role, foot * 0.42, 'black', { weight: 'bold', align: 'center', valign: 'middle', maxLines: 1 }));
+    }
+    return c.scene('black');
+  },
+};
+
+const partyInvite: TemplateDef = {
+  id: 'party-invite',
+  title: 'Party invite',
+  description: 'What, when and where, each on its own ink.',
+  uses: ['gift', 'desk'],
+  layouts: 1,
+  fields: [
+    { key: 'title', label: 'What', kind: 'text', required: true, placeholder: 'Birthday party' },
+    { key: 'when', label: 'When', kind: 'text', placeholder: 'Sat 14 Dec · 19:00' },
+    { key: 'where', label: 'Where', kind: 'text', placeholder: 'Our place' },
+    { key: 'host', label: 'From', kind: 'text', placeholder: 'Sam & Lee' },
+    schemeField,
+  ],
+  build(v, { orientation = 'portrait' } = {}) {
+    const c = new Canvas(orientation);
+    const { W, H } = c;
+    const g = Math.round(Math.min(W, H) * 0.02);
+    const k = inks(v);
+    const host = str(v, 'host');
+    const all: Box = { x: g, y: g, width: W - g * 2, height: H - g * 2 };
+    const [top, bottom] = c.landscape ? splitBox(all, 2, false, g) : [{ ...all, height: all.height * 0.5 }, { ...all, y: all.y + all.height * 0.5 + g, height: all.height * 0.5 - g }];
+    inkBlock(c, top, k[0], str(v, 'title') || 'Party', Math.min(top.height, top.width) * 0.26, { uppercase: true });
+    const rows = splitBox(bottom, host ? 3 : 2, true, g);
+    inkBlock(c, rows[0], k[1], str(v, 'when'), rows[0].height * 0.36, { maxLines: 2 });
+    inkBlock(c, rows[1], k[2], str(v, 'where'), rows[1].height * 0.36, { maxLines: 2 });
+    if (host) inkBlock(c, rows[2], 'white', `From ${host}`, rows[2].height * 0.3, { maxLines: 1 });
+    return c.scene('black');
+  },
+};
+
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const weeklyPlanner: TemplateDef = {
+  id: 'weekly-planner',
+  title: 'Weekly planner',
+  description: 'One line for each day of the week, each day in its own ink.',
+  uses: ['desk'],
+  layouts: 1,
+  fields: [
+    { key: 'title', label: 'Title', kind: 'text', placeholder: 'This week' },
+    { key: 'days', label: 'One line per day, Monday first', kind: 'multiline', placeholder: 'Gym\nTeam lunch\n…' },
+    schemeField,
+  ],
+  build(v, { orientation = 'portrait' } = {}) {
+    const c = new Canvas(orientation);
+    const { W, H, m } = c;
+    const k = inks(v);
+    const lines = str(v, 'days').split('\n').map((x) => x.trim());
+    const title = str(v, 'title');
+    const head = title ? H * 0.1 : 0;
+    if (title) c.add(text(c.box(m, m * 0.6, W - m * 2, head), title, head * 0.62, 'black', { weight: 'bold', valign: 'middle', maxLines: 1 }));
+    const top = m * 0.6 + head + (title ? m * 0.4 : 0);
+    const rowH = (H - top - m * 0.6) / 7;
+    const tab = Math.min(W * 0.26, rowH * 2.2);
+    DAY_NAMES.forEach((d, i) => {
+      const y = top + i * rowH;
+      const color = k[i % k.length];
+      c.add({ type: 'rect', box: c.box(m, y + 3, tab, rowH - 6), color });
+      c.add(text(c.box(m, y + 3, tab, rowH - 6), d, rowH * 0.42, inkOn(color), { weight: 'bold', align: 'center', valign: 'middle', maxLines: 1 }));
+      c.add({ type: 'rect', box: c.box(m, y + rowH - 2, W - m * 2, 2), color: 'black' });
+      if (lines[i]) c.add(text(c.box(m + tab + m * 0.5, y + 3, W - m * 2.5 - tab, rowH - 6), lines[i], rowH * 0.4, 'black', { valign: 'middle', maxLines: 1, minSize: 14 }));
+    });
+    return c.scene();
+  },
+};
+
+const saleSign: TemplateDef = {
+  id: 'sale-sign',
+  title: 'Sale sign',
+  description: 'A big discount on stacked inks, with a line of small print.',
+  uses: ['desk', 'bag'],
+  layouts: 1,
+  fields: [
+    { key: 'big', label: 'Big words', kind: 'text', default: 'SALE', required: true },
+    { key: 'off', label: 'Discount', kind: 'text', placeholder: '−30%' },
+    { key: 'line', label: 'Small print', kind: 'text', placeholder: 'Today only' },
+    schemeField,
+  ],
+  build(v, { orientation = 'portrait' } = {}) {
+    const c = new Canvas(orientation);
+    const { W, H } = c;
+    const g = Math.round(Math.min(W, H) * 0.02);
+    const k = inks(v);
+    const line = str(v, 'line');
+    const off = str(v, 'off');
+    const all: Box = { x: g, y: g, width: W - g * 2, height: H - g * 2 };
+    const parts = [str(v, 'big') || 'SALE', off, line].filter((x, i) => i === 0 || x);
+    const weights = [3, 2.2, 1].slice(0, parts.length).filter((_, i) => i === 0 || parts[i]);
+    const total = weights.reduce((a, b) => a + b, 0);
+    let y = all.y;
+    parts.forEach((p, i) => {
+      const h = ((all.height - g * (parts.length - 1)) * weights[i]) / total;
+      const b: Box = { x: all.x, y, width: all.width, height: h };
+      inkBlock(c, b, k[i % k.length], p, Math.min(h * 0.62, (b.width / Math.max(3, p.length)) * 1.7), { maxLines: 1, uppercase: i === 0 });
+      y += h + g;
+    });
+    return c.scene('black');
+  },
+};
+
+const helloSticker: TemplateDef = {
+  id: 'hello-sticker',
+  title: 'Hello, my name is',
+  description: 'The classic sticker, with a second ink along the bottom.',
+  uses: ['lanyard'],
+  layouts: 1,
+  fields: [{ key: 'name', label: 'Name', kind: 'text', required: true, default: '' }, schemeField],
+  build(v, { orientation = 'portrait' } = {}) {
+    const c = new Canvas(orientation);
+    const { W, H, m } = c;
+    const k = inks(v);
+    const head = H * (c.landscape ? 0.32 : 0.26);
+    c.add({ type: 'rect', box: c.box(0, 0, W, head), color: k[0] });
+    c.add(text(c.box(m, m * 0.4, W - m * 2, head * 0.62), 'HELLO', head * 0.5, inkOn(k[0]), { weight: 'bold', align: 'center', valign: 'middle', maxLines: 1 }));
+    c.add(text(c.box(m, head * 0.62, W - m * 2, head * 0.34), 'my name is', head * 0.2, inkOn(k[0]), { align: 'center', valign: 'top', maxLines: 1 }));
+    const foot = H * 0.06;
+    c.add({ type: 'rect', box: c.box(0, H - foot, W, foot), color: k[1] });
+    c.add({ type: 'rect', box: c.box(0, H - foot - 4, W, 4), color: 'black' });
+    c.add(text(c.box(m, head + m, W - m * 2, H - head - foot - m * 2), str(v, 'name') || 'Your name', H * 0.16, 'black', { weight: 'bold', align: 'center', valign: 'middle', maxLines: 2 }));
+    return c.scene();
+  },
+};
+
+const moodBoard: TemplateDef = {
+  id: 'mood-board',
+  title: 'Mood board',
+  description: 'Four tiles of colour, one word on each.',
+  uses: ['desk', 'gift'],
+  layouts: 1,
+  fields: [
+    { key: 'w1', label: 'Word 1', kind: 'text', placeholder: 'Make' },
+    { key: 'w2', label: 'Word 2', kind: 'text', placeholder: 'Things' },
+    { key: 'w3', label: 'Word 3', kind: 'text', placeholder: 'With' },
+    { key: 'w4', label: 'Word 4', kind: 'text', placeholder: 'Joy' },
+    schemeField,
+  ],
+  build(v, { orientation = 'portrait' } = {}) {
+    const c = new Canvas(orientation);
+    const { W, H } = c;
+    const g = Math.round(Math.min(W, H) * 0.02);
+    const k = inks(v);
+    const colours: ColorName[] = [k[0], k[1], k[2], 'white'];
+    const all: Box = { x: g, y: g, width: W - g * 2, height: H - g * 2 };
+    const rows = splitBox(all, 2, true, g);
+    const cells = rows.flatMap((r) => splitBox(r, 2, false, g));
+    cells.forEach((b, i) => {
+      const w = str(v, `w${i + 1}`);
+      inkBlock(c, b, colours[i], w, Math.min(b.height * 0.4, (b.width / Math.max(3, w.length)) * 1.6), { maxLines: 1 });
+    });
+    return c.scene('black');
+  },
+};
+
 // ---------------------------------------------------------------- hello
 
 /** Drawn when a badge is added: its name, and one stripe per colour as a screen test. */
@@ -631,6 +858,12 @@ export const TEMPLATES: TemplateDef[] = [
   bigText,
   qrCode,
   collage,
+  colourName,
+  partyInvite,
+  weeklyPlanner,
+  saleSign,
+  helloSticker,
+  moodBoard,
 ];
 
 export const template = (id: string): TemplateDef => {

@@ -3,15 +3,15 @@
 // setup screens (Bluetooth, find, set up), with help when nothing is found.
 
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Animated, Easing, Pressable, Text, useWindowDimensions, View } from 'react-native';
 
 import { LockedError, type NearbyBadge, type Orientation, userMessage } from '../../core';
-import { Btn, Card, Chip, Col, Field, Group, H, Label, ListRow, Problem, Row, Screen, Sheet, T, ToggleRow, useText, Wordmark } from '../kit';
+import { Btn, Card, Chip, Col, Field, Group, H, Label, ListRow, Meta, Problem, Row, Screen, Sheet, T, ToggleRow, useText, Wordmark } from '../kit';
 import { useNav } from '../nav';
 import { BadgeFrame, ItemThumb, TemplateThumb } from '../pictures';
-import { Dots, Icon, InkDot } from '../print';
+import { Dots, Icon, InkDot, InkStrip, useReduceMotion } from '../print';
 import { ago, useServices } from '../services';
-import { FONT, INK, tiltFor } from '../theme';
+import { FONT, INK, tiltFor, TYPE } from '../theme';
 
 // ------------------------------------------------------------------ tab root
 
@@ -183,14 +183,14 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
 
       <Row gap={18} style={{ alignItems: 'flex-start', paddingTop: 6 }}>
         {item ? (
-          <ItemThumb app={app} itemId={item.id} width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} />
+          <ItemThumb app={app} itemId={item.id} width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} device />
         ) : (
-          <BadgeFrame width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} style={{ backgroundColor: INK.paper }} />
+          <BadgeFrame width={Math.min(130, width * 0.34)} orientation={b.orientation} tilt={-2} shadow={INK.black} device style={{ backgroundColor: INK.paper }} />
         )}
         <Col gap={6} style={{ flex: 1 }}>
           {root && <H size={28}>{b.name}</H>}
-          {facts.map((f) => (
-            <Text key={f} style={[tx.body, { fontSize: 17, lineHeight: 20 }]}>
+          {facts.map((f, i) => (
+            <Text key={f} style={[i === 0 ? tx.strong : tx.body, { fontSize: i === 0 ? 18 : 16, lineHeight: i === 0 ? 22 : 20 }]}>
               {f}
             </Text>
           ))}
@@ -198,9 +198,9 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
       </Row>
 
       <Row gap={8}>
-        <Btn flex small label="Redraw" busy={busy === 'redraw'} disabled={!!busy} onPress={() => run('redraw', () => app.redraw(id), 'Redrawn.')} />
-        <Btn flex small label="Check" busy={busy === 'check'} disabled={!!busy} onPress={() => run('check', async () => setNotice((await app.checkScreen(id)).message))} />
-        <Btn flex small label="Blank" busy={busy === 'blank'} disabled={!!busy} onPress={() => run('blank', () => app.blank(id), 'The screen is white. The stored picture is kept; Redraw brings it back.')} />
+        <Btn flex small icon="redraw" label="Redraw" busy={busy === 'redraw'} disabled={!!busy} onPress={() => run('redraw', () => app.redraw(id), 'Redrawn.')} />
+        <Btn flex small icon="pulse" label="Check" busy={busy === 'check'} disabled={!!busy} onPress={() => run('check', async () => setNotice((await app.checkScreen(id)).message))} />
+        <Btn flex small icon="blank" label="Blank" busy={busy === 'blank'} disabled={!!busy} onPress={() => run('blank', () => app.blank(id), 'The screen is white. The stored picture is kept; Redraw brings it back.')} />
       </Row>
 
       <Group>
@@ -223,10 +223,15 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
           onChange={(on) => run('lock', () => app.setLocked(id, on), on ? 'Locked to this phone.' : 'Unlocked. Any phone can change it now.')}
         />
         <ListRow label="Sent to this badge" value={String(sent)} onPress={() => nav.setTab('gallery')} />
-        <ListRow label={b.kind === 'demo' ? 'Kind' : 'Badge'} value={b.kind === 'demo' ? 'Demo, on this phone' : `${b.advertisedName} · firmware ${b.firmware ?? '?'}`} />
-        <ListRow label="Forget this badge" onPress={forget} last />
+        <ListRow
+          label={b.kind === 'demo' ? 'Kind' : 'Badge'}
+          detail={b.kind === 'demo' ? 'Lives on this phone' : undefined}
+          value={b.kind === 'demo' ? 'Demo' : `${b.advertisedName} · v${b.firmware ?? '?'}`}
+          last
+        />
       </Group>
-      {root && <Btn kind="ghost" label="Add another badge" onPress={() => nav.push({ name: 'setup' })} />}
+      {root && <Btn kind="secondary" icon="plus" label="Add another badge" onPress={() => nav.push({ name: 'setup' })} />}
+      <Btn kind="danger" label="Forget this badge" onPress={forget} />
 
       <Sheet visible={renaming !== null} onClose={() => setRenaming(null)} title="Name">
         <Field value={renaming ?? ''} onChangeText={setRenaming} autoFocus />
@@ -265,9 +270,49 @@ export function Welcome({ onSetup }: { onSetup: () => void }) {
             <TemplateThumb key={e!.id} app={app} entry={e!} width={w} orientation="portrait" tilt={tiltFor(i) * 2} shadow={INK.black} />
           ))}
       </View>
-      <H size={38}>Pick something to wear.</H>
+      <View accessible accessibilityRole="header" accessibilityLabel="Pick something to wear.">
+        <H size={TYPE.displayL * 1.3}>Pick something</H>
+        <H size={TYPE.displayL * 1.3}>to wear.</H>
+      </View>
       <T>Name tags, lists, clocks, QR codes, signs and your own photos, printed in the badge&apos;s six inks.</T>
+      <InkStrip size={16} />
     </Screen>
+  );
+}
+
+/** A badge sending out rings of ink while the phone looks for it. Still with reduce motion. */
+function Searching() {
+  const reduce = useReduceMotion();
+  const [t] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    if (reduce) return;
+    const a = Animated.loop(Animated.timing(t, { toValue: 1, duration: 1600, easing: Easing.out(Easing.quad), useNativeDriver: true }));
+    a.start();
+    return () => a.stop();
+  }, [reduce, t]);
+  return (
+    <View style={{ width: 200, height: 170, alignItems: 'center', justifyContent: 'center' }} accessibilityLabel="Looking for badges">
+      {!reduce &&
+        [0, 0.5].map((d) => {
+          const p = Animated.modulo(Animated.add(t, d), 1);
+          return (
+            <Animated.View
+              key={d}
+              style={{
+                position: 'absolute',
+                width: 150,
+                height: 150,
+                borderRadius: 75,
+                borderWidth: 3,
+                borderColor: INK.blue,
+                opacity: p.interpolate({ inputRange: [0, 1], outputRange: [0.8, 0] }),
+                transform: [{ scale: p.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1.15] }) }],
+              }}
+            />
+          );
+        })}
+      <BadgeFrame width={70} orientation="portrait" tilt={-3} shadow={INK.red} device style={{ backgroundColor: INK.paper }} />
+    </View>
   );
 }
 
@@ -339,7 +384,7 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
 
   const nearest = found[0];
   const stepNo = step === 'explain' ? 1 : step === 'setup' ? 3 : 2;
-  const header = <Label muted>{`Step ${stepNo} of 3`}</Label>;
+  const header = <Meta text={`Step ${stepNo} of 3`} />;
 
   if (step === 'explain')
     return (
@@ -351,7 +396,7 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
           <View style={{ width: 70, height: 30 }}>
             <Dots width={70} height={30} spacing={10} radius={2.6} color={INK.blue} style={{ left: 0, top: 0 }} />
           </View>
-          <BadgeFrame width={76} orientation="portrait" tilt={3} shadow={INK.red} style={{ backgroundColor: INK.paper }} />
+          <BadgeFrame width={80} orientation="portrait" tilt={3} shadow={INK.red} device style={{ backgroundColor: INK.paper }} />
         </Row>
         <H>Your phone talks to the badge over Bluetooth</H>
         <T>Next, your phone will ask to find nearby devices. Ink Tag only looks for badges, and never uses your location.</T>
@@ -372,13 +417,15 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
             <Btn kind="primary" small label="This one" onPress={() => (setChosen(nearest), setStep('setup'))} />
           </Card>
         ) : (
-          <Card shadow={null} style={{ borderStyle: 'dashed', flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-            <ActivityIndicator color={INK.blue} />
-            <View style={{ flex: 1 }}>
-              <T bold>Looking…</T>
-              <T muted>Searching for up to 20 seconds.</T>
-            </View>
-          </Card>
+          <Col gap={14} style={{ alignItems: 'center', paddingVertical: 12 }}>
+            <Searching />
+            <T bold center>
+              Looking…
+            </T>
+            <T muted center>
+              Searching for up to 20 seconds.
+            </T>
+          </Col>
         )}
         {found.length > 1 && <Btn kind="ghost" label={showOthers ? 'Hide the others' : `${found.length - 1} other badge${found.length > 2 ? 's' : ''} nearby`} onPress={() => setShowOthers((x) => !x)} />}
         {showOthers &&
@@ -391,7 +438,7 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
   if (step === 'help')
     return (
       <Screen onBack={back} back="Back" right={app.bluetooth ? header : undefined} footer={<>{app.bluetooth && <Btn kind="primary" label="Search again" onPress={startScan} />}<DemoButton label="Use the demo badge for now" /></>}>
-        <H>{app.bluetooth ? "We can't find a badge yet" : 'Bluetooth isn’t available in this build'}</H>
+        <H>{app.bluetooth ? "We can't find a badge yet" : 'Bluetooth isn’t available here'}</H>
         {error && <Problem title="What happened">{error}</Problem>}
         {app.bluetooth ? (
           <Group>
@@ -400,7 +447,7 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
             <ListRow label="3. Is it locked to another phone?" detail="Hold its button for 10 s to reset it." last />
           </Group>
         ) : (
-          <T>This copy of the app can&apos;t use Bluetooth (for example in Expo Go). The demo badge works everywhere.</T>
+          <T>This version of the app can&apos;t use Bluetooth. You can still look around with the demo badge.</T>
         )}
       </Screen>
     );
@@ -408,7 +455,7 @@ export function SetupScreen({ onClose }: { onClose: () => void }) {
   return (
     <Screen onBack={back} back="Back" right={header} footer={<Btn kind="primary" label="Finish" busy={busy} onPress={finish} />}>
       <Row gap={16}>
-        <BadgeFrame width={64} orientation={orientation} tilt={-3} shadow={INK.blue} style={{ backgroundColor: INK.paper }} />
+        <BadgeFrame width={64} orientation={orientation} tilt={-3} shadow={INK.blue} device style={{ backgroundColor: INK.paper }} />
         <View style={{ gap: 2 }}>
           <H size={26}>{chosen?.name ?? ''}</H>
           <Label muted>{chosen?.proximity.label ?? ''}</Label>

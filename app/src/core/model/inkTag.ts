@@ -11,7 +11,8 @@
 import { compile, type DrawOp, type Scene } from '../design/scene';
 import { STYLES, type PictureStyle } from '../design/styles';
 import { helloScene, type BadgeUse } from '../design/templates';
-import type { Orientation } from '../imaging/frame';
+import { frameToRgba, type Orientation } from '../imaging/frame';
+import { SCREEN_PALETTE } from '../imaging/palette';
 import { convertFitted, type Converted } from '../imaging/pipeline';
 import type { RgbaImage } from '../imaging/rgba';
 import { type DisplayOutcome, type Log, TagClient } from '../protocol/client';
@@ -31,7 +32,7 @@ import { SimLink } from '../sim/simLink';
 import type { FoundBadge } from '../transport/scan';
 import { fromHex, toHex } from '../util/sha256';
 import { BadgeRegistry, type SavedBadge } from './badges';
-import { Library, type ItemKind, type LibraryItem } from './library';
+import { Library, type ItemKind, type LibraryItem, PREVIEW_VERSION } from './library';
 import { DEFAULT_TIMINGS, ProgressTracker, type SendProgress, type Timings } from './progress';
 import { proximity, type ProximityInfo } from './proximity';
 import { checkScreen, type ScreenCheck } from './screenCheck';
@@ -455,6 +456,26 @@ export class InkTag {
   }
 
   /**
+   * A library item's thumbnail (PNG) in the app's screen inks. Items saved
+   * before those existed are repainted from their stored frame once.
+   */
+  async thumbnail(itemId: string): Promise<Uint8Array | null> {
+    const item = this.library.get(itemId);
+    if (!item) return null;
+    if ((item.previewVersion ?? 1) >= PREVIEW_VERSION) return this.library.preview(itemId);
+    const frame = await this.library.frame(itemId);
+    const { renderer } = this.deps;
+    if (!frame || !renderer.encodePreview) return this.library.preview(itemId);
+    try {
+      const png = await renderer.encodePreview(frameToRgba(frame, item.scene.orientation, undefined, SCREEN_PALETTE));
+      await this.library.setPreview(itemId, png);
+      return png;
+    } catch {
+      return this.library.preview(itemId);
+    }
+  }
+
+  /**
    * Sends a new design, or a library item again. Resolves when the badge has
    * stored the picture (safe to walk away); `displayed` follows after the
    * refresh. Progress is reported through onProgress and sending().
@@ -493,7 +514,7 @@ export class InkTag {
         const prepared = opts.prepared ?? (await this.prepare(what));
         const { converted } = prepared;
         frame = converted.frame;
-        const preview = await this.deps.renderer.encodePreview?.(converted.preview).catch(() => undefined);
+        const preview = await this.deps.renderer.encodePreview?.(converted.display).catch(() => undefined);
         item = await this.library.add(
           {
             kind: what.kind,
@@ -502,6 +523,7 @@ export class InkTag {
             scene: what.scene,
             style: what.style,
             crc32: converted.crc32,
+            previewVersion: preview ? PREVIEW_VERSION : undefined,
           },
           frame,
           preview,
