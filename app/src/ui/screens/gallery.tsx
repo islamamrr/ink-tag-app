@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import { type LibraryFilter, type LibraryItem, SCRATCH } from '../../core';
-import { Btn, Card, Chip, ChipStrip, Col, Field, H, IconBtn, Label, ListRow, Note, Row, Screen, Sheet, T, useText } from '../kit';
+import { Btn, Card, Chip, ChipStrip, Col, EmptyState, Field, H, IconBtn, Label, ListRow, Meta, Note, Row, Screen, Sheet, T, useText } from '../kit';
 import { useNav } from '../nav';
 import { BadgeFrame, ItemThumb } from '../pictures';
 import { Icon, InkDot } from '../print';
@@ -59,7 +59,7 @@ function NowOn() {
     <Card onPress={() => nav.setTab('badge')} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }} label={`Now on ${badge.name}`}>
       {item ? <ItemThumb app={app} itemId={item.id} width={54} orientation={badge.orientation} tilt={-2} device /> : <BadgeFrame width={54} orientation={badge.orientation} tilt={-2} device style={{ backgroundColor: INK.paper }} />}
       <View style={{ flex: 1, gap: 3 }}>
-        <Label muted>Now on {badge.name}</Label>
+        <Meta text={`Now on ${badge.name}`} />
         <Text style={[tx.strong, { fontFamily: FONT.black, fontSize: 22 }]} numberOfLines={1}>
           {item?.title ?? (badge.shownAt ? 'Blank' : 'Nothing yet')}
         </Text>
@@ -96,8 +96,7 @@ export function GalleryScreen() {
         <NowOn />
         {all.length === 0 ? (
           <Col gap={12}>
-            <H size={24}>Nothing printed yet</H>
-            <T muted>Start with one of these, or a photo.</T>
+            <EmptyState title="Nothing printed yet">Everything you send lands here, ready to send again. Start with one of these, or a photo.</EmptyState>
             <Grid entries={starters} />
             <Btn kind="primary" icon="camera" label="Print a photo" onPress={() => nav.push({ name: 'photo' })} />
           </Col>
@@ -137,7 +136,11 @@ export function GalleryScreen() {
                 );
               })}
             </View>
-            {items.length === 0 && <T muted>Nothing here yet.</T>}
+            {items.length === 0 && (
+              <EmptyState icon={filter.kind === 'favourites' ? 'heart' : 'badge'} title={filter.kind === 'favourites' ? 'No favourites yet' : 'Nothing in here yet'}>
+                {filter.kind === 'favourites' ? 'Open a print and tap the heart to keep it here.' : 'Open a print and add it to this collection.'}
+              </EmptyState>
+            )}
           </>
         )}
         <View style={{ height: 70 }} />

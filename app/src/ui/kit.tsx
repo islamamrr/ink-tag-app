@@ -242,7 +242,7 @@ export function Btn({
           <View
             style={[
               st.btn,
-              { minHeight: h, borderRadius: h / 2, paddingHorizontal: small ? 16 : 22 },
+              { minHeight: h, borderRadius: h / 2, paddingHorizontal: small ? (flex ? 8 : 16) : 22 }, small && { gap: 6 },
               face,
               pressed && (shadow ? { transform: [{ translateX: 3 }, { translateY: 2 }] } : { opacity: 0.7 }),
             ]}
