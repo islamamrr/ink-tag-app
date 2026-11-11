@@ -8,12 +8,12 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import { type CatalogEntry, LIVE_RULES, SCRATCH } from '../../core';
-import { Btn, Card, Chip, EmptyState, ChipStrip, Col, Field, H, IconBtn, Label, Note, Row, Screen, Section, T, useSurface, useText } from '../kit';
+import { Btn, Card, Chip, ChipStrip, Col, EmptyState, Field, H, IconBtn, Label, Meta, Note, Row, Screen, Section, T, useSurface, useText } from '../kit';
 import { type Route, useNav } from '../nav';
 import { ItemThumb, TemplateThumb, useTemplateInk } from '../pictures';
-import { Dots, Icon, InkDot, OffsetText } from '../print';
+import { Dots, HardShadow, Icon, InkDot, OffsetText } from '../print';
 import { useServices } from '../services';
-import { FONT, INK, inkLine, tiltFor } from '../theme';
+import { FONT, INK, inkLine, SHADOW, SPACE, tiltFor, TYPE } from '../theme';
 
 /** Where tapping a template goes. */
 export const routeFor = (e: CatalogEntry): Route =>
@@ -25,7 +25,8 @@ export const routeFor = (e: CatalogEntry): Route =>
         ? { name: 'live', id: e.id }
         : { name: 'form', id: e.id };
 
-const tag = (e: CatalogEntry) => (e.behaviour === 'live' ? 'Live' : e.behaviour === 'board' ? 'Tap to send' : e.behaviour === 'list' ? 'Tick list' : '');
+/** Every tile has a tag line, so rows of tiles line up. */
+const tag = (e: CatalogEntry) => (e.behaviour === 'live' ? 'Live' : e.behaviour === 'board' ? 'Tap to send' : e.behaviour === 'list' ? 'Tick list' : 'Fill in');
 
 export function TemplateTile({ e, width, index = 0 }: { e: CatalogEntry; width: number; index?: number }) {
   const { app, badge } = useServices();
@@ -38,7 +39,9 @@ export function TemplateTile({ e, width, index = 0 }: { e: CatalogEntry; width: 
       <Text style={[tx.strong, { fontSize: width < 110 ? 17 : 19, marginTop: 2 }]} numberOfLines={1}>
         {e.def.title}
       </Text>
-      {t ? <Text style={[tx.meta, { marginTop: -4 }]}>{t.toUpperCase()}</Text> : null}
+      <View style={{ marginTop: -4 }}>
+        <Meta text={t} size={width < 110 ? TYPE.labelS : TYPE.label} color={e.behaviour === 'live' ? (tx.sf.flood ? tx.sf.fg : LIVE_GREEN) : undefined} />
+      </View>
     </Pressable>
   );
 }
@@ -56,6 +59,9 @@ export function Grid({ entries, cols = 2 }: { entries: CatalogEntry[]; cols?: nu
   );
 }
 
+/** A darker green for "LIVE" on paper: the green ink is too light for 10 px text. */
+const LIVE_GREEN = '#1E6B3E';
+
 /** The "On your badge" strip: what it shows now, and whether it's nearby. */
 export function NowOnLine() {
   const { app, badge, connected } = useServices();
@@ -63,58 +69,84 @@ export function NowOnLine() {
   const tx = useText();
   if (!badge) return null;
   const item = badge.shownItemId ? app.library.get(badge.shownItemId) : undefined;
-  const what = item?.title ?? (badge.shownAt ? 'blank' : 'nothing yet');
+  const what = item?.title ?? (badge.shownAt ? 'Blank' : 'Nothing yet');
+  const status = connected ? 'Near' : badge.kind === 'demo' ? 'Demo' : 'Away';
+  const portrait = badge.orientation === 'portrait';
   return (
     <Pressable
       onPress={() => nav.setTab('badge')}
       accessibilityRole="button"
       accessibilityLabel={`On ${badge.name}: ${what}. ${connected ? 'Connected' : 'Not connected'}`}
-      style={({ pressed }) => [
-        { minHeight: 56, borderWidth: 2, borderColor: INK.black, backgroundColor: INK.white, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 10, paddingVertical: 6 },
-        pressed && { opacity: 0.75 },
-      ]}
     >
-      {item ? (
-        <ItemThumb app={app} itemId={item.id} width={badge.orientation === 'portrait' ? 28 : 48} orientation={badge.orientation} />
-      ) : (
-        <View style={{ width: badge.orientation === 'portrait' ? 28 : 48, aspectRatio: badge.orientation === 'portrait' ? 2 / 3 : 1.5, borderWidth: 1.5, borderColor: INK.black, backgroundColor: INK.paper }} />
+      {({ pressed }) => (
+        <HardShadow x={SHADOW.card} y={SHADOW.card}>
+          <View
+            style={[
+              { minHeight: 60, borderWidth: 2, borderColor: INK.black, backgroundColor: INK.white, flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 10, paddingRight: 12, paddingVertical: 7 },
+              pressed && { transform: [{ translateX: 3 }, { translateY: 3 }] },
+            ]}
+          >
+            {item ? (
+              <ItemThumb app={app} itemId={item.id} width={portrait ? 30 : 48} orientation={badge.orientation} />
+            ) : (
+              <View style={{ width: portrait ? 30 : 48, aspectRatio: portrait ? 2 / 3 : 1.5, borderWidth: 2, borderColor: INK.black, backgroundColor: INK.paper, overflow: 'hidden' }}>
+                <Hatch />
+              </View>
+            )}
+            <View style={{ flex: 1, gap: 1 }}>
+              <Meta text={`On ${badge.name}`} />
+              <Text style={[tx.strong, { fontSize: 21, lineHeight: 23, color: INK.black }]} numberOfLines={1}>
+                {what}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 2, borderColor: INK.black, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 3 }}>
+              <InkDot color={connected ? INK.green : badge.kind === 'demo' ? INK.blue : INK.muted} size={8} />
+              <Text style={{ fontFamily: FONT.monoBold, fontSize: 11, color: INK.black }}>{status.toUpperCase()}</Text>
+            </View>
+          </View>
+        </HardShadow>
       )}
-      <Text style={[tx.strong, { flex: 1, color: INK.black }]} numberOfLines={1}>
-        On {badge.name}: {what}
-      </Text>
-      <Row gap={6}>
-        <InkDot color={connected ? INK.green : badge.kind === 'demo' ? INK.blue : INK.muted} size={9} />
-        <Text style={{ fontFamily: FONT.monoBold, fontSize: 11, color: INK.muted }}>{connected ? 'NEAR' : badge.kind === 'demo' ? 'DEMO' : 'AWAY'}</Text>
-      </Row>
     </Pressable>
+  );
+}
+
+/** Diagonal hatching: a screen with nothing on it yet. */
+function Hatch() {
+  return (
+    <View style={{ flex: 1, overflow: 'hidden' }}>
+      {Array.from({ length: 10 }, (_, i) => (
+        <View key={i} style={{ position: 'absolute', left: -20 + i * 8, top: -10, width: 1.5, height: 90, backgroundColor: 'rgba(24,24,27,0.3)', transform: [{ rotate: '35deg' }] }} />
+      ))}
+    </View>
   );
 }
 
 /** The big blue "Print a photo" block. */
 function PhotoBlock({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Print a photo, from your photos">
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Print a photo, in the badge's six inks">
       {({ pressed }) => (
-        <View>
-          <View style={{ position: 'absolute', left: 5, top: 5, right: -5, bottom: -5, backgroundColor: INK.black }} />
+        <HardShadow x={SHADOW.card} y={SHADOW.card}>
           <View
             style={[
-              { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: INK.blue, borderWidth: 2, borderColor: INK.black, padding: 16, overflow: 'hidden' },
+              { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: INK.blue, borderWidth: 2, borderColor: INK.black, paddingVertical: 18, paddingLeft: 16, paddingRight: 14, overflow: 'hidden' },
               pressed && { transform: [{ translateX: 3 }, { translateY: 3 }] },
             ]}
           >
-            <Dots width={130} height={130} spacing={8} radius={2.4} color={INK.yellow} ground={INK.blue} round style={{ right: -24, top: -24 }} />
-            <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: INK.paper, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="camera" size={27} />
+            {/* Dots stay in the corner and fade out before the words. */}
+            <Dots width={96} height={96} spacing={8} radius={2.3} color={INK.yellow} ground={INK.blue} fadeTo={96} round style={{ right: -26, top: -26 }} />
+            <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: INK.paper, borderWidth: 2, borderColor: INK.black, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="camera" size={26} />
             </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <OffsetText style={{ fontFamily: FONT.display, fontSize: 19, lineHeight: 25, color: INK.paper }} second="rgba(228,64,47,0.8)" dx={2} dy={2}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <OffsetText style={{ fontFamily: FONT.display, fontSize: TYPE.displayS, lineHeight: 23, color: INK.paper }} second="rgba(228,64,47,0.85)" dx={2} dy={2}>
                 Print a photo
               </OffsetText>
-              <Text style={{ fontFamily: FONT.bold, fontSize: 18, color: '#DDE5FF' }}>From your photos, in the badge&apos;s inks</Text>
+              <Text style={{ fontFamily: FONT.bold, fontSize: TYPE.body, lineHeight: 20, color: '#E6ECFF' }}>In the badge&apos;s six inks</Text>
             </View>
+            <Icon name="next" size={22} color={INK.paper} stroke={2.8} />
           </View>
-        </View>
+        </HardShadow>
       )}
     </Pressable>
   );
@@ -139,6 +171,14 @@ export function TemplatesHome() {
       {nav.notice && <Note onClose={() => nav.setNotice(null)}>{nav.notice}</Note>}
       <NowOnLine />
       <PhotoBlock onPress={() => nav.push({ name: 'photo' })} />
+      <ChipStrip>
+        <View style={{ justifyContent: 'center', paddingRight: 2 }}>
+          <Meta text="Start blank" />
+        </View>
+        {scratch.map((e) => (
+          <Chip key={e.id} label={e.def.title} onPress={() => nav.push({ name: 'form', id: e.id })} />
+        ))}
+      </ChipStrip>
 
       {photos.length > 0 && (
         <Col gap={10}>
@@ -153,23 +193,27 @@ export function TemplatesHome() {
         </Col>
       )}
 
-      <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 6 }}>
-        <H size={24}>Or start from a print</H>
-        <Label muted>{catalog.entries.length} PRINTS</Label>
+      <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: SPACE.s }}>
+        <H size={TYPE.headingL}>Or start from a print</H>
+        <Meta text={`${catalog.entries.length} prints`} />
       </Row>
 
       {pack && (
-        <Card onPress={() => nav.push({ name: 'pack', id: pack.id })} tilt={-0.8} label={`New: ${pack.title}`}>
-          <View style={{ position: 'absolute', right: 10, top: -12, backgroundColor: INK.yellow, borderWidth: 2, borderColor: INK.black, paddingHorizontal: 8, paddingVertical: 2, transform: [{ rotate: '3deg' }] }}>
-            <Text style={{ fontFamily: FONT.monoBold, fontSize: 11, color: INK.black }}>NEW PACK</Text>
-          </View>
-          <H size={24}>{pack.title}</H>
-          <T muted size={17}>
-            {pack.description}
-          </T>
-          <Row gap={6}>
-            <Text style={{ fontFamily: FONT.monoBold, fontSize: 12, color: INK.blue }}>{pack.templates.length} TEMPLATES</Text>
-            <Icon name="next" size={16} color={INK.blue} stroke={2.8} />
+        <Card onPress={() => nav.push({ name: 'pack', id: pack.id })} label={`New: ${pack.title}`} style={{ paddingVertical: 12 }}>
+          <Row gap={12}>
+            <Col gap={4} style={{ flex: 1 }}>
+              <Row gap={10}>
+                <H size={TYPE.headingL - 2}>{pack.title}</H>
+                <View style={{ backgroundColor: INK.yellow, borderWidth: 2, borderColor: INK.black, paddingHorizontal: 6, paddingVertical: 1, transform: [{ rotate: '-2deg' }] }}>
+                  <Meta text="New pack" size={TYPE.labelS} color={INK.black} />
+                </View>
+              </Row>
+              <Text style={{ fontFamily: FONT.bold, fontSize: 17, lineHeight: 19, color: INK.muted }} numberOfLines={1}>
+                {pack.tagline ?? pack.description}
+              </Text>
+              <Meta text={`${pack.templates.length} templates`} color={INK.blue} />
+            </Col>
+            <Icon name="next" size={22} stroke={2.8} />
           </Row>
         </Card>
       )}
@@ -192,15 +236,6 @@ export function TemplatesHome() {
         <Grid entries={list} />
       </Col>
 
-      <Col gap={10}>
-        <H size={24}>Start from scratch</H>
-        <Row wrap gap={10}>
-          <Btn small icon="camera" label="Photo" onPress={() => nav.push({ name: 'photo' })} />
-          {scratch.map((e) => (
-            <Btn small key={e.id} label={e.def.title} onPress={() => nav.push({ name: 'form', id: e.id })} />
-          ))}
-        </Row>
-      </Col>
     </Screen>
   );
 }

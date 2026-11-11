@@ -27,6 +27,7 @@
    "id": "desk",
    "title": "Desk pack",
    "description": "For the badge that lives by your monitor: a to-do list, a status board, a clock and a countdown.",
+   "tagline": "To-do list, status board, clock, countdown",
    "added": "2026-11-03",
    "templates": [
     "todo",
@@ -40,6 +41,7 @@
    "id": "shop",
    "title": "Shop counter pack",
    "description": "Open and closed signs, price tags, today's menu and guest Wi-Fi.",
+   "tagline": "Open signs, price tags, menu, guest Wi-Fi",
    "added": "2026-10-20",
    "templates": [
     "open-closed",
@@ -52,6 +54,7 @@
    "id": "events",
    "title": "Events pack",
    "description": "Conference badges, table numbers, race bibs and tickets.",
+   "tagline": "Conference badges, tables, race bibs, tickets",
    "added": "2026-10-01",
    "templates": [
     "conference-badge",
