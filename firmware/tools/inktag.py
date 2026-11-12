@@ -11,6 +11,7 @@ the app's image pipeline and BLE protocol (docs/PROTOCOL.md).
     python inktag.py clear white
     python inktag.py show
     python inktag.py info
+    python inktag.py temp 35                   # pretend the panel is 35 C ("off" = read it again)
     python inktag.py window 304 200 184 128 black            # redraw one box only
     python inktag.py window 304 200 184 128 white --code1 skip --code2 90
 """
@@ -193,6 +194,13 @@ async def run_ble(args, frame=None):
                 print(f"  pass {n}: " + ("skipped" if code == WINDOW_CODE_SKIP else f"{ms} ms (code {code})"))
             return
 
+        if args.cmd == "temp":
+            value = -128 if args.celsius == "off" else max(-20, min(60, int(args.celsius)))
+            await tag.command(struct.pack("<Bb", CMD_TEMP, value))
+            await tag.expect(EVT_INFO, 5)
+            print("temperature override " + ("off" if value == -128 else f"{value} C"))
+            return
+
         if args.cmd == "clear":
             await tag.command(bytes([CMD_CLEAR, COLOR_CODES[args.color]]))
         elif args.cmd == "show":
@@ -241,6 +249,10 @@ def main():
 
     p = sub.add_parser("clear", help="fill the panel with one color")
     p.add_argument("color", choices=list(COLOR_CODES))
+    ble_args(p)
+
+    p = sub.add_parser("temp", help="set a fixed panel temperature for the next refreshes (RAM only)")
+    p.add_argument("celsius", help="-20..60, or 'off' to read the panel again")
     ble_args(p)
 
     p = sub.add_parser("window", help="experimental: redraw only a box (firmware 0.5+)",
