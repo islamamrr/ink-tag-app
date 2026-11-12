@@ -182,6 +182,17 @@ static esp_err_t panel_init_regs(void)
     return ESP_OK;
 }
 
+// Window (0x83): source start, source end, gate start, gate end, each 16 bits
+// big endian, then a flag byte. The vendor code sets the whole panel
+// (0..791, 0..527) with flag 01; on sibling UltraChip chips the window limits
+// both where display data lands and which area a refresh drives.
+static esp_err_t set_window(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+    uint16_t x2 = x + w - 1, y2 = y + h - 1;
+    return CMD(0x83, x >> 8, x & 0xFF, x2 >> 8, x2 & 0xFF,
+               y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF, 0x01);
+}
+
 // Temperature read, as in the vendor code: 0x41 00, then 0x40, wait, read a
 // byte. In the UC8179c datasheet 0x41 00 selects the on-chip sensor (0x41 80
 // would select an LM75 on TSCL/TSDA), and 0x40 returns signed whole degrees
@@ -248,7 +259,37 @@ static esp_err_t send_pass(const uint8_t map[16], epd_reader_t reader, void *ctx
     return ESP_OK;
 }
 
-static esp_err_t refresh(void)
+// Starts a refresh and waits for it. With allow_fast, a refresh shorter than
+// REFRESH_MIN_MS is accepted (a test of a possibly fast waveform); it still
+// has to pull BUSY low, or no panel is there. ms (optional) gets the time BUSY
+// was low.
+// Streams only the box's pixels of one pass, row by row. x and w are
+// multiples of 8, so each row is whole bytes in both formats.
+static esp_err_t send_box_pass(const uint8_t map[16], const epd_window_t *win,
+                               epd_reader_t reader, void *ctx)
+{
+    ESP_RETURN_ON_ERROR(write_cmd(0x10), TAG, "DTM");
+    size_t row_in = win->w / 2;
+    for (uint16_t row = 0; row < win->h; row++) {
+        size_t base = (size_t)(win->y + row) * (EPD_WIDTH / 2) + win->x / 2;
+        for (size_t off = 0; off < row_in; off += IN_CHUNK) {
+            size_t n = row_in - off;
+            if (n > IN_CHUNK) {
+                n = IN_CHUNK;
+            }
+            ESP_RETURN_ON_ERROR(reader(ctx, base + off, s_in, n), TAG, "box read");
+            for (size_t i = 0; i < n; i += 2) {
+                uint8_t a = s_in[i], b = s_in[i + 1];
+                s_out[i / 2] = (map[a >> 4] << 6) | (map[a & 0x0F] << 4) |
+                               (map[b >> 4] << 2) | map[b & 0x0F];
+            }
+            ESP_RETURN_ON_ERROR(write_data(s_out, n / 2), TAG, "box data");
+        }
+    }
+    return ESP_OK;
+}
+
+static esp_err_t refresh_timed(bool allow_fast, uint32_t *ms_out)
 {
     ESP_RETURN_ON_ERROR(CMD(0x17, 0xA5), TAG, "refresh");
     TickType_t start = xTaskGetTickCount();
@@ -263,12 +304,20 @@ static esp_err_t refresh(void)
     ESP_RETURN_ON_ERROR(wait_busy(), TAG, "refresh busy");
     uint32_t ms = pdTICKS_TO_MS(xTaskGetTickCount() - start);
     ESP_LOGI(TAG, "refresh took %lu ms", (unsigned long)ms);
-    if (ms < REFRESH_MIN_MS) {
+    if (ms_out) {
+        *ms_out = ms;
+    }
+    if (ms < REFRESH_MIN_MS && !allow_fast) {
         ESP_LOGE(TAG, "refresh finished in %lu ms, too fast to be real: "
                       "check the panel and BUSY wire", (unsigned long)ms);
         return ESP_ERR_TIMEOUT;
     }
     return ESP_OK;
+}
+
+static esp_err_t refresh(void)
+{
+    return refresh_timed(false, NULL);
 }
 
 static esp_err_t panel_sleep(void)
@@ -381,6 +430,70 @@ esp_err_t epd_show(epd_reader_t reader, void *ctx)
     esp_err_t err = show_passes(reader, ctx);
     if (err != ESP_OK) {
         // Best effort: don't leave the DC/DC running on a half-done refresh.
+        CMD(0x07, 0xA5);
+        return err;
+    }
+    return panel_sleep();
+}
+
+// One pass of a window refresh. code is the 0xE6 waveform code.
+static esp_err_t window_pass(const epd_window_t *win, const uint8_t map[16], uint8_t code,
+                             epd_reader_t reader, void *ctx, uint32_t *ms)
+{
+    ESP_RETURN_ON_ERROR(force_temperature(code), TAG, "code");
+    if (win->flags & EPD_WIN_BOX_DATA) {
+        // Window first, then only the box's pixels.
+        ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win");
+        ESP_RETURN_ON_ERROR(send_box_pass(map, win, reader, ctx), TAG, "box");
+    } else {
+        // Whole frame into RAM, then narrow the window for the refresh only.
+        ESP_RETURN_ON_ERROR(set_window(0, 0, EPD_WIDTH, EPD_HEIGHT), TAG, "win full");
+        ESP_RETURN_ON_ERROR(send_pass(map, reader, ctx), TAG, "frame");
+        ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win");
+    }
+    return refresh_timed(true, ms);
+}
+
+static esp_err_t show_window_passes(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                                    epd_window_result_t *res)
+{
+    int8_t temp;
+    uint8_t normal1, normal2;
+
+    ESP_RETURN_ON_ERROR(panel_init_regs(), TAG, "init");
+    ESP_RETURN_ON_ERROR(panel_read_temperature(&temp), TAG, "temp");
+    s_last_temp = temp;
+    temperature_codes(temp, &normal1, &normal2);
+    res->code1 = win->code1 == EPD_WIN_CODE_NORMAL ? normal1 : win->code1;
+    res->code2 = win->code2 == EPD_WIN_CODE_NORMAL ? normal2 : win->code2;
+    ESP_LOGW(TAG, "window test: box %u,%u %ux%u, %s data, codes %u/%u (normal %u/%u at %d C)",
+             win->x, win->y, win->w, win->h,
+             (win->flags & EPD_WIN_BOX_DATA) ? "box" : "full-frame",
+             res->code1, res->code2, normal1, normal2, temp);
+
+    if (win->code1 != EPD_WIN_CODE_SKIP) {
+        ESP_RETURN_ON_ERROR(window_pass(win, PASS1_MAP, res->code1, reader, ctx, &res->pass1_ms),
+                            TAG, "pass1");
+    }
+    if (win->code2 != EPD_WIN_CODE_SKIP) {
+        ESP_RETURN_ON_ERROR(window_pass(win, PASS2_MAP, res->code2, reader, ctx, &res->pass2_ms),
+                            TAG, "pass2");
+    }
+    return ESP_OK;
+}
+
+esp_err_t epd_show_window(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                          epd_window_result_t *res)
+{
+    memset(res, 0, sizeof(*res));
+    if (win->w == 0 || win->h == 0 || win->x % 8 || win->w % 8 ||
+        win->x + win->w > EPD_WIDTH || win->y + win->h > EPD_HEIGHT ||
+        (win->code1 == EPD_WIN_CODE_SKIP && win->code2 == EPD_WIN_CODE_SKIP)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
+    esp_err_t err = show_window_passes(win, reader, ctx, res);
+    if (err != ESP_OK) {
         CMD(0x07, 0xA5);
         return err;
     }
