@@ -14,6 +14,7 @@ import {
   type Orientation,
   type Rotation,
 } from './frame';
+import { SCREEN_PALETTE } from './palette';
 import type { RgbaImage } from './rgba';
 import { applyTone, type Tone } from './tone';
 
@@ -27,8 +28,10 @@ export interface ConvertOptions {
 export interface Converted {
   frame: Uint8Array;
   crc32: number;
-  /** Exactly what the badge will draw, decoded back from the frame. */
+  /** Exactly what the badge will draw, decoded back from the frame, in the measured panel colours. */
   preview: RgbaImage;
+  /** The same picture in the app's bright screen inks (SCREEN_PALETTE): what the UI shows. */
+  display: RgbaImage;
   shares: ReturnType<typeof colorShares>;
   /** Milliseconds per step, for tuning on slow phones. */
   timings: { tone: number; dither: number; pack: number; preview: number };
@@ -63,12 +66,14 @@ export function convertFitted(img: RgbaImage, opts: ConvertOptions = {}): Conver
   const crc = crc32(frame);
   const tPack = lap();
   const preview = frameToRgba(frame, orientation, rotation);
+  const display = frameToRgba(frame, orientation, rotation, SCREEN_PALETTE);
   const tPreview = lap();
   if (frame.length !== FRAME_BYTES) throw new Error('internal: bad frame size');
   return {
     frame,
     crc32: crc,
     preview,
+    display,
     shares: colorShares(indices),
     timings: { tone: tTone, dither: tDither, pack: tPack, preview: tPreview },
   };

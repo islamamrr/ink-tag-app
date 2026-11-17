@@ -20,6 +20,8 @@ export interface CatalogPack {
   id: string;
   title: string;
   description: string;
+  /** One short line for the Print tab's pack card. Falls back to the description. */
+  tagline?: string;
   /** YYYY-MM-DD. The newest pack is the "New" shelf. */
   added: string;
   templates: string[];
