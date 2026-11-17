@@ -37,6 +37,7 @@ Request the largest MTU the phone allows (the badge accepts up to 517). All mult
 | `0x08` | LOCK | 16-byte owner key | locks the badge to the phone holding the key (or changes the key), then INFO. Firmware 0.4+ |
 | `0x09` | AUTH | none, or 16-byte answer | none: CHALLENGE. With an answer: INFO if it's right, ERROR locked if not. Firmware 0.4+ |
 | `0x0A` | UNLOCK | – | erases the owner key, then INFO. Firmware 0.4+ |
+| `0x0C` | LUT | u8 register, then its data | experimental: stores a register for the custom-waveform probe, then LUT. Firmware 0.6+, see [PROBE.md](PROBE.md) |
 | `0x0B` | WINDOW | u16 x, u16 y, u16 w, u16 h, u8 fill, u8 code1, u8 code2, u8 flags | experimental: redraws one box over the stored image, then WINDOW. Firmware 0.5+, see [Window test](#window-test-firmware-05-experimental) |
 
 ## Notifications (from Control)
@@ -51,6 +52,7 @@ Every notification starts with `[event][status]`.
 | `0x84` | INFO | u8 protocol, u8 fw major, u8 minor, u8 patch, u16 width, u16 height, u8 native format, u8 has image, i8 temperature (−128 = unknown), u32 max upload length, then from firmware 0.2: i8 temperature override (−128 = off), then from firmware 0.3: 3 bytes panel id read at boot (all `FF` or all `00` = the panel didn't answer; show a wiring warning), then from firmware 0.4: u8 lock flags (bit 0 locked, bit 1 this connection may change the badge) |
 | `0x85` | CHALLENGE | 16-byte nonce (firmware 0.4+) |
 | `0x86` | WINDOW | i8 panel temperature, u8 code1, u8 code2 (as used), u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (firmware 0.5+) |
+| `0x87` | LUT | u8 register, u8 registers now held (firmware 0.6+) |
 | `0x8F` | ERROR | u8 opcode that failed; status holds the error |
 
 Error codes: 1 bad command, 2 bad length, 3 bad state, 4 overflow, 5 CRC mismatch, 6 flash error, 7 panel timeout (the panel stayed busy too long, or, from firmware 0.3.1, never went busy at all, which means no panel is answering; nothing was drawn), 8 no stored image, 9 bad format.
@@ -87,4 +89,6 @@ A development command for finding out whether the panel can redraw part of the s
 - **code1, code2:** the value written to register `0xE6` before each pass. `0x00` uses the normal code for the panel temperature (2/7 ... 42/47), `0xFF` skips the pass, anything else is forced. Codes above 47 are outside what the vendor code uses: on sibling UltraChip chips that's where fast and partial waveforms live (ESPHome uses 90 and 110 on the UC8179), but nobody knows what this panel's memory holds there.
 - **flags bit 0 set:** the window (`0x83`) is narrowed to the box first and only the box's pixels are sent. **Clear:** the whole frame is sent with a full-screen window, and the window is narrowed only for the refresh. Which of the two the controller wants is one of the things to find out.
 - The WINDOW answer reports how long BUSY stayed low in each pass. Unlike a normal refresh, a very short pass is reported rather than treated as a missing panel; a pass that never goes busy is still ERROR `panel timeout`.
+- **flags bit 1 (firmware 0.6+):** custom-waveform probe. After the normal init, the registers stored with LUT are written, and a forced code of 0 means 0xE0/0xE6 aren't written at all. Only allowed with bit 0 set, a box of at most 128 × 128, and at least one stored register. A pass that never pulls BUSY low reports 0 ms instead of an error. **Bit 2:** the fill's low 2 bits go to the panel as is, in both passes. **Bit 3:** refresh with PON, DRF (0x12) and POF instead of AUTO (0x17).
+- **LUT (0x0C, firmware 0.6+):** `[0x0C][register][data...]`. Accepted registers: 0x20–0x2F (1–64 bytes), 0x00 PSR override (1–2), 0x50 CDI override (1); 0xFF with no data clears them all. Anything else answers ERROR `bad command`; more than 12 registers answers `overflow`. Kept in RAM until cleared or reboot. The control characteristic now takes writes of up to 72 bytes. Details and the bench steps: [PROBE.md](PROBE.md).
 - The stored image isn't changed. SHOW redraws the whole picture, which also clears any ghosting a test leaves behind.

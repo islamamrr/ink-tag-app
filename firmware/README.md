@@ -2,7 +2,7 @@
 
 ESP-IDF firmware for the Ink Tag badge: an ESP32 receives pictures from a phone over Bluetooth LE, keeps the last one in flash, and draws it on the Topwin TWE0368NW58 3.68" six-color e-paper panel (528 × 792). The controller is a UC8279E according to the vendor's file name; the datasheet doesn't name it and has no command table, so the driver follows the vendor's reference code.
 
-Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3**. Not yet run on hardware. Firmware 0.4 adds the lock (`main/lock.c`), and 0.5 an experimental window test (below); 0.5.0 compiles without warnings for the ESP32-C3.
+Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3**. Runs on the hardware (window test results from 11 Nov are in [docs/PROBE.md](docs/PROBE.md)). Firmware 0.4 adds the lock (`main/lock.c`), 0.5 an experimental window test and 0.6 a custom-waveform probe (below).
 
 ## Layout
 
@@ -16,7 +16,7 @@ Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3
 | `main/protocol.h` | BLE protocol constants, shared with the app spec |
 | `docs/PROTOCOL.md` | Protocol description for the phone app |
 | `tools/inktag.py` | PC test tool: converts pictures and sends them over BLE |
-| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0), firmware 0.5.0 with the default pins |
+| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0), firmware 0.6.0 with the default pins |
 | `docs/GETTING_STARTED.md` | Step-by-step from parts to first picture |
 
 ## Wiring
@@ -89,6 +89,17 @@ python tools/inktag.py window 304 200 184 128 white --code1 skip --code2 90
 ```
 
 What to look for: whether only the box flashes (the rest of the picture stays still), whether the box lands where expected or mirrored, and the pass times. Normal passes take seconds; a pass well under 2–3 seconds with a clean black/white change would mean a fast waveform exists at that code. Try a handful of codes (for example 50, 60, 90, 110, 127), not a sweep, and redraw the whole picture with `show` afterwards to clear any ghosting. Nothing here writes to the panel's memory, so a bad code can only leave a messy picture.
+
+## Custom-waveform probe (0.6, experimental)
+
+The window test showed that a box can be redrawn on its own, but at the full 18 s, and Topwin has no faster waveform for this panel. 0.6 adds a LUT command so we can try our own waveform on a 32 × 32 box: first a "do nothing" waveform to see whether the controller uses our registers at all, then balanced pulses, then short one-way pushes. VCOM stays grounded and the voltage registers can't be changed, so the risk stays inside the box. Steps and what to look for: [docs/PROBE.md](docs/PROBE.md).
+
+```
+python tools/inktag.py probe zero
+python tools/inktag.py probe pulse 20
+python tools/inktag.py probe push 20 --dir a
+python tools/inktag.py probe ledger
+```
 
 ## Not done yet
 

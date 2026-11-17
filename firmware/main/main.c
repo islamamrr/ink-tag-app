@@ -225,6 +225,7 @@ static bool needs_owner(uint8_t op)
     case INKTAG_CMD_LOCK:
     case INKTAG_CMD_UNLOCK:
     case INKTAG_CMD_WINDOW:
+    case INKTAG_CMD_LUT:
         return true;
     default:
         return false;
@@ -374,6 +375,21 @@ static void handle_command(const uint8_t *cmd, size_t len)
             window_test(cmd, len);
         }
         break;
+
+    case INKTAG_CMD_LUT: {
+        if (len < 2 || s_state != STATE_IDLE) {
+            notify_error(len < 2 ? INKTAG_ERR_BAD_COMMAND : INKTAG_ERR_BAD_STATE, cmd[0]);
+            return;
+        }
+        esp_err_t err = epd_lut_set(cmd[1], &cmd[2], len - 2);
+        if (err != ESP_OK) {
+            notify_error(err == ESP_ERR_NO_MEM ? INKTAG_ERR_OVERFLOW : INKTAG_ERR_BAD_COMMAND, cmd[0]);
+            return;
+        }
+        uint8_t msg[4] = {INKTAG_EVT_LUT, INKTAG_OK, cmd[1], (uint8_t)epd_lut_count()};
+        ble_service_notify(msg, sizeof(msg));
+        break;
+    }
 
     default:
         notify_error(INKTAG_ERR_BAD_COMMAND, cmd[0]);

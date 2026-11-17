@@ -6,7 +6,7 @@
 
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
-#define INKTAG_FW_VERSION_MINOR 5
+#define INKTAG_FW_VERSION_MINOR 6
 #define INKTAG_FW_VERSION_PATCH 0
 
 // 128-bit UUIDs, written here in the usual string order:
@@ -44,6 +44,11 @@ enum {
     // normal, 0xFF = skip the pass), u8 flags (bit 0: send only the box's
     // pixels). Redraws the box over the stored image, then notifies WINDOW.
     INKTAG_CMD_WINDOW = 0x0B,
+    // Experimental custom-waveform probe (fw 0.6+): u8 register, then its data
+    // bytes. 0x20-0x2F LUT (1-64 bytes), 0x00 PSR override (1-2), 0x50 CDI
+    // override (1); 0xFF with no data clears them all. Kept in RAM and used by
+    // WINDOW with flags bit 1 (custom LUT). Notifies LUT.
+    INKTAG_CMD_LUT = 0x0C,
 };
 
 // Notifications on the control characteristic: [event][status][payload...]
@@ -55,6 +60,7 @@ enum {
     INKTAG_EVT_CHALLENGE = 0x85, // payload: 16-byte nonce to answer with AUTH (fw 0.4+)
     INKTAG_EVT_WINDOW    = 0x86, // window test done; payload: i8 temperature, u8 code1, u8 code2,
                                  // u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (fw 0.5+)
+    INKTAG_EVT_LUT       = 0x87, // LUT stored; payload: u8 register, u8 registers now held (fw 0.6+)
     INKTAG_EVT_ERROR     = 0x8F, // status holds the error; payload: u8 command that failed
 };
 

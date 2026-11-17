@@ -51,6 +51,9 @@ esp_err_t epd_show(epd_reader_t reader, void *ctx);
 #define EPD_WIN_CODE_NORMAL 0x00  // use the normal code for the panel temperature
 #define EPD_WIN_CODE_SKIP   0xFF  // leave this pass out
 #define EPD_WIN_BOX_DATA    0x01  // flags: send only the box's pixels (else the whole frame)
+#define EPD_WIN_CUSTOM_LUT  0x02  // flags: load the registers from epd_lut_set() before the passes
+#define EPD_WIN_RAW         0x04  // flags: fill value's low 2 bits go to the panel as is, both passes
+#define EPD_WIN_DRF         0x08  // flags (custom LUT only): PON, DRF 0x12, POF instead of AUTO 0x17
 
 typedef struct {
     uint16_t x, y, w, h;
@@ -70,6 +73,16 @@ typedef struct {
 // skipped passes. Leaves the panel in deep sleep.
 esp_err_t epd_show_window(const epd_window_t *win, epd_reader_t reader, void *ctx,
                           epd_window_result_t *res);
+
+// Custom-waveform probe (experimental, firmware 0.6). Stores a register
+// value in RAM for the next EPD_WIN_CUSTOM_LUT window: 0x20-0x2F (LUT, 1-64
+// bytes), 0x00 (PSR override, 1-2 bytes) or 0x50 (CDI override, 1 byte).
+// EPD_LUT_CLEAR forgets them all. ESP_ERR_INVALID_ARG for anything else.
+// A custom-LUT window must be box data only and at most EPD_LUT_MAX_AREA px.
+#define EPD_LUT_CLEAR 0xFF
+#define EPD_LUT_MAX_AREA (128 * 128)
+esp_err_t epd_lut_set(uint8_t reg, const uint8_t *data, size_t len);
+int epd_lut_count(void);
 
 // Fills the whole panel with one color.
 esp_err_t epd_clear(uint8_t color);
