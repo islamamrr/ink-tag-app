@@ -7,12 +7,16 @@ import type { RgbaImage } from './rgba';
 
 export type DitherMethod = 'floyd-steinberg' | 'atkinson' | 'none';
 export type ColorMetric = 'oklab' | 'rgb';
+/** Where the rounding error is carried to the next pixels. */
+export type ErrorSpace = 'srgb' | 'oklab';
 
 export interface DitherOptions {
   method?: DitherMethod;
   metric?: ColorMetric;
   /** Alternate row direction (Floyd–Steinberg); avoids diagonal "worms". */
   serpentine?: boolean;
+  /** 'oklab' carries error in perceptual lightness/colour: smoother tones, fewer stray dots. */
+  errorSpace?: ErrorSpace;
   palette?: readonly PaletteEntry[];
 }
 
@@ -43,6 +47,7 @@ export function dither(img: RgbaImage, opts: DitherOptions = {}): Uint8Array {
     method = 'floyd-steinberg',
     metric = 'oklab',
     serpentine = true,
+    errorSpace = 'srgb',
     palette = PALETTE,
   } = opts;
   const { width: w, height: h, data } = img;
@@ -53,6 +58,8 @@ export function dither(img: RgbaImage, opts: DitherOptions = {}): Uint8Array {
     for (let i = 0; i < w * h; i++) out[i] = nearest(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
     return out;
   }
+
+  if (errorSpace === 'oklab') return ditherOklab(img, KERNELS[method], serpentine && method === 'floyd-steinberg', palette);
 
   const kernel = KERNELS[method];
   const buf = new Float32Array(w * h * 3);
@@ -89,6 +96,66 @@ export function dither(img: RgbaImage, opts: DitherOptions = {}): Uint8Array {
         buf[j] += er * wt;
         buf[j + 1] += eg * wt;
         buf[j + 2] += eb * wt;
+      }
+    }
+  }
+  return out;
+}
+
+/** Same diffusion, but the running error lives in Oklab (L, a, b). */
+function ditherOklab(
+  img: RgbaImage,
+  kernel: Kernel,
+  snake: boolean,
+  palette: readonly PaletteEntry[],
+): Uint8Array {
+  const { width: w, height: h, data } = img;
+  const out = new Uint8Array(w * h);
+  const buf = new Float32Array(w * h * 3);
+  const tmp = new Float32Array(3);
+  for (let i = 0; i < w * h; i++) {
+    rgbToOklab(data[i * 4], data[i * 4 + 1], data[i * 4 + 2], tmp);
+    buf.set(tmp, i * 3);
+  }
+  const ref = new Float32Array(palette.length * 3);
+  palette.forEach((p, k) => {
+    rgbToOklab(p.rgb[0], p.rgb[1], p.rgb[2], tmp);
+    ref.set(tmp, k * 3);
+  });
+  for (let y = 0; y < h; y++) {
+    const rtl = snake && (y & 1) === 1;
+    const dir = rtl ? -1 : 1;
+    for (let n = 0; n < w; n++) {
+      const x = rtl ? w - 1 - n : n;
+      const i = y * w + x;
+      const L = Math.min(1, Math.max(0, buf[i * 3]));
+      const A = Math.min(0.5, Math.max(-0.5, buf[i * 3 + 1]));
+      const B = Math.min(0.5, Math.max(-0.5, buf[i * 3 + 2]));
+      let k = 0;
+      let bestD = Infinity;
+      for (let c = 0; c < palette.length; c++) {
+        const d0 = L - ref[c * 3];
+        const d1 = A - ref[c * 3 + 1];
+        const d2 = B - ref[c * 3 + 2];
+        const d = d0 * d0 + d1 * d1 + d2 * d2;
+        if (d < bestD) {
+          bestD = d;
+          k = c;
+        }
+      }
+      out[i] = k;
+      const e0 = L - ref[k * 3];
+      const e1 = A - ref[k * 3 + 1];
+      const e2 = B - ref[k * 3 + 2];
+      for (let t = 0; t < kernel.length; t++) {
+        const [dx, dy, wt] = kernel[t];
+        const nx = x + dx * dir;
+        const ny = y + dy;
+        if (nx < 0 || nx >= w || ny >= h) continue;
+        const j = (ny * w + nx) * 3;
+        buf[j] += e0 * wt;
+        buf[j + 1] += e1 * wt;
+        buf[j + 2] += e2 * wt;
       }
     }
   }

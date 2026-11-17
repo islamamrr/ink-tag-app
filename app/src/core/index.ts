@@ -17,6 +17,8 @@ export * from './imaging/palette';
 export * from './imaging/rgba';
 export * from './imaging/fit';
 export * from './imaging/tone';
+export * from './imaging/look';
+export * from './imaging/compare';
 export * from './imaging/dither';
 export * from './imaging/frame';
 export * from './imaging/pipeline';

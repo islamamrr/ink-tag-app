@@ -3,6 +3,9 @@ import {
   colorShares,
   computeFit,
   convert,
+  convertCompare,
+  QUAD_HEIGHT,
+  QUAD_WIDTH,
   convertFitted,
   crc32,
   dither,
@@ -157,4 +160,46 @@ test('full pipeline on a photo, with timings', () => {
   }
   const big = { width: 1200, height: 900, data: new Uint8Array(1200 * 900 * 4).fill(200) };
   expect(convert(big, { fit: 'cover' }).frame.length).toBe(FRAME_BYTES);
+});
+
+describe('looks', () => {
+  const photo = () => {
+    const img = { width: W, height: H, data: new Uint8Array(W * H * 4) };
+    for (let i = 0; i < W * H; i++) {
+      const x = i % W;
+      img.data.set([x % 256, (x * 2) % 256, 255 - (x % 256), 255], i * 4);
+    }
+    return img;
+  };
+
+  test("'today' is exactly the default pipeline", () => {
+    const a = convertFitted(photo());
+    const b = convertFitted(photo(), { look: 'today' });
+    expect(b.crc32).toBe(a.crc32);
+  });
+
+  test('other looks differ from today and keep the frame size', () => {
+    const today = convertFitted(photo(), { look: 'today' });
+    for (const look of ['boost', 'fit', 'fit-curve'] as const) {
+      const c = convertFitted(photo(), { look });
+      expect(c.frame.length).toBe(FRAME_BYTES);
+      expect(c.crc32).not.toBe(today.crc32);
+    }
+  });
+
+  test("'fit' draws a light tone with less of the panel's grey white", () => {
+    const img = photo();
+    img.data.fill(225); // light, flat
+    const today = convertFitted(img, { look: 'today' }).shares.white;
+    const fit = convertFitted(img, { look: 'fit' }).shares.white;
+    expect(fit).toBeLessThan(today);
+  });
+});
+
+test('compare screen builds one full frame from a 264 x 396 picture', () => {
+  const small = { width: QUAD_WIDTH, height: QUAD_HEIGHT, data: new Uint8Array(QUAD_WIDTH * QUAD_HEIGHT * 4).fill(128) };
+  const c = convertCompare(small);
+  expect(c.frame.length).toBe(FRAME_BYTES);
+  expect(c.preview.width).toBe(W);
+  expect(() => convertCompare({ ...small, width: 10 })).toThrow();
 });

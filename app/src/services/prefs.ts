@@ -7,13 +7,14 @@
 
 import { File, Paths } from 'expo-file-system';
 
-import type { DitherMethod, FitMode, Timing } from '../core';
+import type { DitherMethod, FitMode, Look, Timing } from '../core';
 
 export interface Prefs {
   lastBadge: { id: string; name: string } | null;
   autoConnect: boolean;
   fit: FitMode;
   dither: DitherMethod;
+  look: Look;
   simTiming: Timing;
   /** Show every command and notification in the log, not just the summary. */
   verboseLog: boolean;
@@ -24,6 +25,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoConnect: true,
   fit: 'cover',
   dither: 'floyd-steinberg',
+  look: 'today',
   simTiming: 'fast',
   verboseLog: false,
 };
