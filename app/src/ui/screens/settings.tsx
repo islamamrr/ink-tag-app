@@ -1,5 +1,6 @@
 // The Settings tab: app-wide only (each badge's settings live on its page).
 
+import * as Updates from 'expo-updates';
 import Constants from 'expo-constants';
 import { useRef } from 'react';
 import { Pressable, Share, View } from 'react-native';
@@ -65,6 +66,18 @@ export function HelpScreen() {
   );
 }
 
+/** Which code is running: the build's own, or an over-the-air update (with its time). */
+function buildLine(): string {
+  try {
+    if (!Updates.isEnabled) return 'Build: development';
+    if (Updates.isEmbeddedLaunch || !Updates.updateId) return 'Build: as installed (no update yet)';
+    const when = Updates.createdAt ? ` · ${Updates.createdAt.toISOString().slice(0, 16).replace('T', ' ')} UTC` : '';
+    return `Update ${Updates.updateId.slice(0, 8)}${when}`;
+  } catch {
+    return '';
+  }
+}
+
 export function AboutScreen() {
   const nav = useNav();
   const { state, catalog } = useServices();
@@ -88,6 +101,7 @@ export function AboutScreen() {
       <T muted>{`${catalog.entries.length} templates in ${catalog.packs.length} packs.`}</T>
       <Pressable onPress={tapVersion} accessibilityRole="text" style={{ alignSelf: 'flex-start', paddingVertical: 8 }}>
         <Label muted>{`Version ${Constants.expoConfig?.version ?? '?'}`}</Label>
+        <Label muted>{buildLine()}</Label>
       </Pressable>
     </Screen>
   );
