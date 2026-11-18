@@ -25,7 +25,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoConnect: true,
   fit: 'cover',
   dither: 'floyd-steinberg',
-  look: 'today',
+  look: 'boost',
   simTiming: 'fast',
   verboseLog: false,
 };

@@ -1,0 +1,58 @@
+name: EAS Update
+# Publishes the app's JavaScript and assets over the air, so installed builds
+# pick the change up next time they open. Native changes (a new native
+# library, permissions, an Expo SDK upgrade) still need a new APK: the
+# runtime version (a fingerprint of the native code) tells phones which
+# updates fit them.
+#
+# One-time setup: create an Expo access token (expo.dev > Account settings >
+# Access tokens) and save it as the repository secret EXPO_TOKEN.
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: What changed (shown in the update list)
+        required: false
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/eas-update.yml']
+concurrency:
+  group: eas-update
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Check for the token
+        id: token
+        working-directory: .
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN is not set; skipping the update. See the comment at the top of this workflow."
+            echo "have=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.have == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.token.outputs.have == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        if: steps.token.outputs.have == 'true'
+      - name: Publish the update to the "preview" channel
+        if: steps.token.outputs.have == 'true'
+        env:
+          MSG: ${{ github.event.inputs.message || github.event.head_commit.message || 'manual update' }}
+        run: |
+          npx eas-cli@latest channel:create preview --non-interactive || true
+          npx eas-cli@latest update --channel preview --platform android --non-interactive --message "${MSG%%$'\n'*}"
