@@ -15,6 +15,12 @@ export interface Prefs {
   fit: FitMode;
   dither: DitherMethod;
   look: Look;
+  /** 'auto' lets the look choose where dither error is carried. */
+  errorSpace: 'auto' | 'srgb' | 'oklab';
+  /** Extra cost of choosing white while dithering; 0 is off. */
+  whitePenalty: number;
+  /** Sharpening before dithering, 0 to 1. */
+  sharpen: number;
   simTiming: Timing;
   /** Show every command and notification in the log, not just the summary. */
   verboseLog: boolean;
@@ -26,6 +32,9 @@ export const DEFAULT_PREFS: Prefs = {
   fit: 'cover',
   dither: 'floyd-steinberg',
   look: 'boost',
+  errorSpace: 'auto',
+  whitePenalty: 0,
+  sharpen: 0,
   simTiming: 'fast',
   verboseLog: false,
 };

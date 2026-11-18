@@ -15,7 +15,7 @@ import {
   type Rotation,
 } from './frame';
 import type { RgbaImage } from './rgba';
-import { applyLook, lookDither, type Look } from './look';
+import { applyLook, lookDither, sharpen, type Look } from './look';
 import { applyTone, type Tone } from './tone';
 
 export interface ConvertOptions {
@@ -24,6 +24,8 @@ export interface ConvertOptions {
   tone?: Partial<Tone>;
   /** How tones are mapped onto the panel before dithering. Default 'today'. */
   look?: Look;
+  /** Unsharp mask on lightness before dithering, 0 (off) to 1. */
+  sharpen?: number;
   dither?: DitherOptions;
 }
 
@@ -59,9 +61,9 @@ export function convertFitted(img: RgbaImage, opts: ConvertOptions = {}): Conver
     return Math.round(d);
   };
   const look = opts.look ?? 'today';
-  const toned = applyLook(opts.tone ? applyTone(img, opts.tone) : img, look);
+  const toned = applyLook(sharpen(opts.tone ? applyTone(img, opts.tone) : img, opts.sharpen ?? 0), look);
   const tTone = lap();
-  const indices = dither(toned, look === 'today' ? opts.dither : lookDither(look, opts.dither));
+  const indices = dither(toned, lookDither(look, opts.dither));
   const tDither = lap();
   const frame = packFrame(indices, orientation, rotation);
   const crc = crc32(frame);

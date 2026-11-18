@@ -4,7 +4,7 @@
 import { crc32 } from '../protocol/crc32';
 import { colorShares, dither } from './dither';
 import { frameToRgba, packFrame, PORTRAIT_HEIGHT, PORTRAIT_WIDTH } from './frame';
-import { applyLook, LOOKS, lookDither } from './look';
+import { applyLook, COMPARE_LOOKS, lookDither } from './look';
 import type { Converted } from './pipeline';
 import type { RgbaImage } from './rgba';
 
@@ -45,7 +45,7 @@ export function convertCompare(img: RgbaImage): Converted {
     throw new Error(`expected ${QUAD_WIDTH}×${QUAD_HEIGHT}, got ${img.width}×${img.height}`);
   const t0 = Date.now();
   const full = new Uint8Array(PORTRAIT_WIDTH * PORTRAIT_HEIGHT);
-  LOOKS.forEach((look, n) => {
+  COMPARE_LOOKS.forEach((look, n) => {
     const ox = (n % 2) * QUAD_WIDTH;
     const oy = Math.floor(n / 2) * QUAD_HEIGHT;
     const part = dither(applyLook(img, look), lookDither(look));
