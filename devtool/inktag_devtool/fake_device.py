@@ -14,7 +14,7 @@ import zlib
 from . import protocol as p
 from .imaging import FRAME_BYTES, HEIGHT, WIDTH
 
-FW_VERSION = (0, 3, 0)
+FW_VERSION = (0, 5, 0)
 PANEL_ID = bytes([0x00, 0x00, 0x66])   # made up: the UC8279E's real answer is unknown
 NAME = "InkTag-SIM0"
 ADDRESS = "SIMULATOR"
@@ -126,6 +126,32 @@ class FakeTag:
             color = cmd[1] if len(cmd) > 1 else 1
             await self._refresh(bytes([(color << 4) | color]) * FRAME_BYTES)
             notify(struct.pack("<BBb", p.EVT_DISPLAYED, 0, self.last_temp))
+
+        elif op == p.CMD_WINDOW and self.support_temp_cmd:
+            if self._receiving:
+                return error(3)
+            if len(cmd) < 13:
+                return error(1)
+            x, y, w, h, fill, c1, c2, _ = struct.unpack_from("<HHHHBBBB", cmd, 1)
+            if (w == 0 or h == 0 or x % 8 or w % 8 or x + w > WIDTH or y + h > HEIGHT
+                    or c1 == c2 == p.WINDOW_CODE_SKIP):
+                return error(1)
+            frame = bytearray(self.stored or bytes([0x11]) * FRAME_BYTES)
+            colors = (0, 1, 2, 3, 5, 6)
+            for row in range(y, y + h):
+                for px in range(x, x + w, 2):
+                    a, b = ((colors[(q - x) * 6 // w] if fill == p.WINDOW_STRIPES else fill & 0x0F)
+                            for q in (px, px + 1))
+                    frame[(row * WIDTH + px) // 2] = (a << 4) | b
+            self.last_temp = self._read_temp()
+            per_pass = self._timing(1.5, 15.0)
+            ms = [0 if c == p.WINDOW_CODE_SKIP else int(per_pass * 1000) for c in (c1, c2)]
+            self.log(f"W epd: window test: box {x},{y} {w}x{h}")
+            await asyncio.sleep(sum(ms) / 1000)
+            if self.on_display:
+                self.on_display(bytes(frame))
+            notify(struct.pack("<BBbBBII", p.EVT_WINDOW, 0, self.last_temp,
+                               c1 or 32, c2 or 37, *ms))
 
         elif op == p.CMD_INFO:
             notify(self._info())

@@ -16,6 +16,9 @@ FMT_NATIVE_4BPP = inktag.FMT_NATIVE_4BPP
 CMD_BEGIN, CMD_END, CMD_SHOW = inktag.CMD_BEGIN, inktag.CMD_END, inktag.CMD_SHOW
 CMD_CLEAR, CMD_INFO, CMD_ABORT = inktag.CMD_CLEAR, inktag.CMD_INFO, inktag.CMD_ABORT
 CMD_TEMP = getattr(inktag, "CMD_TEMP", 0x07)
+CMD_WINDOW, EVT_WINDOW = inktag.CMD_WINDOW, inktag.EVT_WINDOW
+WINDOW_STRIPES, WINDOW_CODE_NORMAL, WINDOW_CODE_SKIP = (
+    inktag.WINDOW_STRIPES, inktag.WINDOW_CODE_NORMAL, inktag.WINDOW_CODE_SKIP)
 EVT_READY, EVT_RECEIVED, EVT_DISPLAYED = inktag.EVT_READY, inktag.EVT_RECEIVED, inktag.EVT_DISPLAYED
 EVT_INFO, EVT_ERROR = inktag.EVT_INFO, inktag.EVT_ERROR
 ERRORS = inktag.ERRORS
@@ -23,9 +26,9 @@ ERR_BAD_COMMAND = 1
 TEMP_UNKNOWN = -128
 
 COMMAND_NAMES = {CMD_BEGIN: "BEGIN", CMD_END: "END", CMD_SHOW: "SHOW", CMD_CLEAR: "CLEAR",
-                 CMD_INFO: "INFO", CMD_ABORT: "ABORT", CMD_TEMP: "TEMP"}
+                 CMD_INFO: "INFO", CMD_ABORT: "ABORT", CMD_TEMP: "TEMP", CMD_WINDOW: "WINDOW"}
 EVENT_NAMES = {EVT_READY: "READY", EVT_RECEIVED: "RECEIVED", EVT_DISPLAYED: "DISPLAYED",
-               EVT_INFO: "INFO", EVT_ERROR: "ERROR"}
+               EVT_INFO: "INFO", EVT_WINDOW: "WINDOW", EVT_ERROR: "ERROR"}
 COLOR_NAMES = {code: name for name, _, code in inktag.PALETTE}
 
 INFO_FORMAT = "<BBBBBBHHBBbI"            # protocol v1
@@ -73,7 +76,23 @@ def describe_command(data):
     if data[0] == CMD_TEMP and len(data) >= 2:
         t = struct.unpack_from("<b", data, 1)[0]
         return f"{name} override {'off' if t == TEMP_UNKNOWN else f'{t} °C'}"
+    if data[0] == CMD_WINDOW and len(data) >= 13:
+        x, y, w, h, fill, c1, c2, flags = struct.unpack_from("<HHHHBBBB", data, 1)
+        fill = "stripes" if fill == WINDOW_STRIPES else COLOR_NAMES.get(fill, fill)
+        return (f"{name} box {x},{y} {w}x{h} {fill}, codes {code_str(c1)}/{code_str(c2)}, "
+                f"{'box' if flags & 1 else 'full-frame'} data")
     return name
+
+
+def code_str(code):
+    return {WINDOW_CODE_NORMAL: "normal", WINDOW_CODE_SKIP: "skip"}.get(code, str(code))
+
+
+def window_result_str(result):
+    temp, c1, c2, ms1, ms2 = result
+    passes = [f"pass {n} {'skipped' if c == WINDOW_CODE_SKIP else f'{ms / 1000:.1f} s (code {c})'}"
+              for n, c, ms in ((1, c1, ms1), (2, c2, ms2))]
+    return f"{', '.join(passes)}, panel {temp_str(temp)}"
 
 
 def describe_event(data):
@@ -85,6 +104,8 @@ def describe_event(data):
         return f"{name} {ERRORS.get(data[1], data[1])} (command {cmd})"
     if data[0] == EVT_DISPLAYED and len(data) >= 3:
         return f"{name} panel {temp_str(struct.unpack_from('<b', data, 2)[0])}"
+    if data[0] == EVT_WINDOW and len(data) >= 13:
+        return f"{name} {window_result_str(inktag.parse_window(data))}"
     if data[0] == EVT_INFO:
         try:
             i = parse_info(data)
@@ -174,6 +195,15 @@ class TagClient:
         value = TEMP_UNKNOWN if celsius is None else max(-20, min(60, int(celsius)))
         await self.command(struct.pack("<Bb", CMD_TEMP, value))
         return parse_info(await self.expect(EVT_INFO, 5))
+
+    async def window_test(self, x, y, w, h, fill, code1=WINDOW_CODE_NORMAL,
+                          code2=WINDOW_CODE_NORMAL, box_data=True):
+        """Experimental (firmware 0.5+): redraws one box. Returns
+        (temperature, code1, code2, pass 1 ms, pass 2 ms)."""
+        self._flush()
+        await self.command(inktag.window_command(x, y, w, h, fill, code1, code2, box_data))
+        self.log("info", "refreshing the box...")
+        return inktag.parse_window(await self.expect(EVT_WINDOW, 150))
 
     async def _displayed(self, timeout=150):
         self.log("info", "panel refreshing (a six-color refresh takes a while)...")

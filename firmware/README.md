@@ -2,7 +2,7 @@
 
 ESP-IDF firmware for the Ink Tag badge: an ESP32 receives pictures from a phone over Bluetooth LE, keeps the last one in flash, and draws it on the Topwin TWE0368NW58 3.68" six-color e-paper panel (528 × 792). The controller is a UC8279E according to the vendor's file name; the datasheet doesn't name it and has no command table, so the driver follows the vendor's reference code.
 
-Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3**. Not yet run on hardware. Firmware 0.4 adds the lock (`main/lock.c`); it was written without an ESP-IDF toolchain at hand, so the first `idf.py build` of 0.4 is also its first compile.
+Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3**. Not yet run on hardware. Firmware 0.4 adds the lock (`main/lock.c`), and 0.5 an experimental window test (below); 0.5.0 compiles without warnings for the ESP32-C3.
 
 ## Layout
 
@@ -16,7 +16,7 @@ Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3
 | `main/protocol.h` | BLE protocol constants, shared with the app spec |
 | `docs/PROTOCOL.md` | Protocol description for the phone app |
 | `tools/inktag.py` | PC test tool: converts pictures and sends them over BLE |
-| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0). Still firmware 0.1.0: later versions are built from source on the laptop |
+| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0), firmware 0.5.0 with the default pins |
 | `docs/GETTING_STARTED.md` | Step-by-step from parts to first picture |
 
 ## Wiring
@@ -74,6 +74,22 @@ SPI writes run at 8 MHz by default (datasheet p.11 allows up to 10 MHz) and the 
 
 The frame is streamed from flash in 2 KB pieces, so the firmware never holds the 209 KB image in RAM. That is why a plain ESP32 or ESP32-C3 without PSRAM is enough.
 
+## Window test (0.5, experimental)
+
+To find out whether the panel can update only part of the screen (a clock, say) and whether it has a faster waveform than the six-color one, 0.5 adds a WINDOW command that redraws one box and times each pass. Details are in [docs/PROTOCOL.md](docs/PROTOCOL.md#window-test-firmware-05-experimental). It is also in the devtool (*Window test* box) and in `tools/inktag.py`:
+
+```
+# 1. Does only the box change? Normal waveform, only the box's pixels sent.
+python tools/inktag.py window 304 200 184 128 black
+# 2. Same, but the whole frame is sent and the window narrowed only for the refresh.
+python tools/inktag.py window 304 200 184 128 white --full-frame
+# 3. Hunting for a fast waveform: one pass, a forced code, black then white.
+python tools/inktag.py window 304 200 184 128 black --code1 skip --code2 90
+python tools/inktag.py window 304 200 184 128 white --code1 skip --code2 90
+```
+
+What to look for: whether only the box flashes (the rest of the picture stays still), whether the box lands where expected or mirrored, and the pass times. Normal passes take seconds; a pass well under 2–3 seconds with a clean black/white change would mean a fast waveform exists at that code. Try a handful of codes (for example 50, 60, 90, 110, 127), not a sweep, and redraw the whole picture with `show` afterwards to clear any ghosting. Nothing here writes to the panel's memory, so a bad code can only leave a messy picture.
+
 ## Not done yet
 
 - Battery power: the radio advertises all the time and the chip never sleeps. Waking on a button and advertising for a while is the usual pattern.
@@ -83,4 +99,4 @@ The frame is streamed from flash in 2 KB pieces, so the firmware never holds the
 
 ## Lock (0.4)
 
-The app locks a badge to its phone when it's added, so a stranger nearby can't change it. How it works is in [docs/PROTOCOL.md](docs/PROTOCOL.md#lock-firmware-04). To unlock a badge without its phone, hold the button (BOOT on the dev boards; `idf.py menuconfig` → *Ink Tag* → *Button GPIO*) for 10 seconds while the badge is running; it redraws its colour bands when done. A locked badge refuses `tools/inktag.py` and the devtool, so unlock it first to use them.
+The app locks a badge to its phone when it's added, so a stranger nearby can't change it. How it works is in [docs/PROTOCOL.md](docs/PROTOCOL.md#lock-firmware-04). To unlock a badge without its phone, hold the button (BOOT on the dev boards; `idf.py menuconfig` → *Ink Tag* → *Button GPIO*) for 10 seconds while the badge is running; it redraws its colour bands when done. A locked badge refuses `tools/inktag.py` and the devtool (including the window test), so unlock it first to use them.

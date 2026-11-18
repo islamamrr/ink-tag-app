@@ -264,6 +264,50 @@ class MainWindow(QMainWindow):
         self.temp_note.setStyleSheet("color: palette(dark);")
         tg.addWidget(self.temp_note, 2, 0, 1, 2)
 
+        # experimental window test (firmware 0.5+)
+        self.win_spins = {}
+        for key, lo, hi, step, val in (("x", 0, 784, 8, 304), ("y", 0, 527, 1, 200),
+                                       ("w", 8, 792, 8, 184), ("h", 1, 528, 1, 128)):
+            sp = QSpinBox()
+            sp.setRange(lo, hi)
+            sp.setSingleStep(step)
+            sp.setValue(val)
+            self.win_spins[key] = sp
+        self.win_fill = QComboBox()
+        for name, _, code in imaging.PALETTE:
+            pm = QPixmap(14, 14)
+            pm.fill(QColor(SWATCHES[name]))
+            self.win_fill.addItem(pm, name, code)
+        self.win_fill.addItem("six stripes", protocol.WINDOW_STRIPES)
+        self.win_codes = []
+        for _ in range(2):
+            cb = QComboBox()
+            cb.setEditable(True)
+            cb.addItems(["normal", "skip"])
+            cb.setToolTip("Waveform code written to register 0xE6 for this pass: "
+                          "normal (picked from the temperature), skip, or a number 1-254")
+            self.win_codes.append(cb)
+        self.win_full = QCheckBox("Send the whole frame (window only for the refresh)")
+        self.win_btn = QPushButton("Redraw box")
+        self.win_btn.clicked.connect(self.window_test)
+        self.win_result = QLabel("Redraws one box over the stored image and times each pass. "
+                                 "x and width snap to multiples of 8.")
+        self.win_result.setWordWrap(True)
+        win_box = QGroupBox("Window test (experimental, firmware 0.5)")
+        wg = QGridLayout(win_box)
+        for i, key in enumerate(("x", "y", "w", "h")):
+            wg.addWidget(QLabel({"w": "width", "h": "height"}.get(key, key)), i // 2, (i % 2) * 2)
+            wg.addWidget(self.win_spins[key], i // 2, (i % 2) * 2 + 1)
+        wg.addWidget(QLabel("fill"), 2, 0)
+        wg.addWidget(self.win_fill, 2, 1, 1, 3)
+        wg.addWidget(QLabel("pass 1"), 3, 0)
+        wg.addWidget(self.win_codes[0], 3, 1)
+        wg.addWidget(QLabel("pass 2"), 3, 2)
+        wg.addWidget(self.win_codes[1], 3, 3)
+        wg.addWidget(self.win_full, 4, 0, 1, 4)
+        wg.addWidget(self.win_btn, 5, 0, 1, 4)
+        wg.addWidget(self.win_result, 6, 0, 1, 4)
+
         self.send_btn = QPushButton("Send to badge")
         f = self.send_btn.font()
         f.setBold(True)
@@ -323,7 +367,7 @@ class MainWindow(QMainWindow):
         right = QWidget()
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
-        for w in (dev_box, temp_box, send_box, self.sim_box, serial_box):
+        for w in (dev_box, temp_box, send_box, win_box, self.sim_box, serial_box):
             rv.addWidget(w)
         rv.addStretch()
         scroll = QScrollArea()
@@ -388,7 +432,7 @@ class MainWindow(QMainWindow):
         self.connect_btn.setText("Disconnect" if connected else "Connect")
         self.connect_btn.setEnabled(not busy or connected)
         for w in (self.info_btn, self.show_btn, self.clear_btn, self.clear_color,
-                  self.temp_apply, self.temp_redraw):
+                  self.temp_apply, self.temp_redraw, self.win_btn):
             w.setEnabled(connected and not busy)
         self.temp_value.setEnabled(self.temp_fixed.isChecked())
         self.send_btn.setText("Cancel" if upload else "Send to badge")
@@ -607,6 +651,41 @@ class MainWindow(QMainWindow):
 
         what = f"{value} °C" if value is not None else "off (use the panel sensor)"
         self.run(f"setting the temperature override to {what}…", go(), done)
+
+    def window_test(self):
+        v = {k: sp.value() for k, sp in self.win_spins.items()}
+        v["x"] -= v["x"] % 8
+        v["w"] = max(8, v["w"] - v["w"] % 8)
+        v["w"] = min(v["w"], imaging.WIDTH - v["x"])
+        v["h"] = min(v["h"], imaging.HEIGHT - v["y"])
+        try:
+            codes = [imaging.inktag.parse_code(cb.currentText().strip().lower()) for cb in self.win_codes]
+        except Exception:
+            self.log("error", "pass codes must be normal, skip, or a number from 1 to 254")
+            return
+        if codes == [protocol.WINDOW_CODE_SKIP] * 2:
+            self.log("error", "at least one pass must run")
+            return
+        client = self.client
+
+        async def go():
+            try:
+                return await client.window_test(v["x"], v["y"], v["w"], v["h"],
+                                                self.win_fill.currentData(), *codes,
+                                                box_data=not self.win_full.isChecked())
+            except protocol.TagError as e:
+                if e.code == protocol.ERR_BAD_COMMAND:
+                    raise RuntimeError("the badge refused the window test: firmware older than "
+                                       "0.5.0, or a box it can't take") from e
+                raise
+
+        def done(result):
+            text = protocol.window_result_str(result)
+            self.win_result.setText(text)
+            self.log("ok", "window test: " + text)
+            self.info_labels["Temperature"].setText(protocol.temp_str(result[0]) + " (last refresh)")
+
+        self.run(f"redrawing box {v['x']},{v['y']} {v['w']}x{v['h']}…", go(), done)
 
     def send_or_cancel(self):
         if self._uploading and self.busy is not None:

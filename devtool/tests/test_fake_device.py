@@ -129,3 +129,20 @@ def test_panel_id():
         tag.panel_id = b"\xff\xff\xff"
         assert protocol.panel_answering((await client.info())["panel_id"]) is False
     run(go)
+
+
+def test_window_test():
+    async def go(client, tag, shown):
+        temp, c1, c2, ms1, ms2 = await client.window_test(8, 10, 16, 2, imaging.inktag.COLOR_CODES["black"],
+                                                          code1=protocol.WINDOW_CODE_SKIP, code2=90)
+        assert (c1, c2) == (protocol.WINDOW_CODE_SKIP, 90) and ms1 == 0 and ms2 > 0
+        frame = shown[-1]
+        row = imaging.WIDTH // 2
+        assert frame[10 * row + 4:10 * row + 12] == b"\x00" * 8      # box is black
+        assert frame[10 * row + 3] == 0x11 and frame[12 * row + 4] == 0x11  # white around it
+        try:
+            await client.window_test(4, 0, 8, 8, 0)
+            raise AssertionError("expected bad command")
+        except ValueError:
+            pass   # x not a multiple of 8, refused before sending
+    run(go)

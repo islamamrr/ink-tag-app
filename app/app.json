@@ -62,6 +62,16 @@
         "projectId": "bdc8bc26-dc9c-4fc3-96ef-849a40aa4ec7"
       }
     },
-    "owner": "iamrdev33"
+    "owner": "iamrdev33",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/bdc8bc26-dc9c-4fc3-96ef-849a40aa4ec7",
+      "requestHeaders": {
+        "expo-channel-name": "preview"
+      },
+      "checkAutomatically": "ON_LOAD"
+    }
   }
 }

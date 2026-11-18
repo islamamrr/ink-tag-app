@@ -6,7 +6,7 @@
 
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
-#define INKTAG_FW_VERSION_MINOR 4
+#define INKTAG_FW_VERSION_MINOR 5
 #define INKTAG_FW_VERSION_PATCH 0
 
 // 128-bit UUIDs, written here in the usual string order:
@@ -38,6 +38,12 @@ enum {
     INKTAG_CMD_LOCK  = 0x08, // 16-byte owner key: lock to this phone, or change the key. Notifies INFO. (fw 0.4+)
     INKTAG_CMD_AUTH  = 0x09, // no args: notifies CHALLENGE. 16 bytes: HMAC-SHA-256(key, nonce)[0..15], notifies INFO. (fw 0.4+)
     INKTAG_CMD_UNLOCK = 0x0A, // erase the owner key. Notifies INFO. (fw 0.4+)
+    // Experimental window test (fw 0.5+): u16 x, u16 y, u16 w, u16 h (native
+    // frame, x and w multiples of 8), u8 fill (pixel value, or 0x10 for six
+    // color stripes), u8 code1, u8 code2 (0xE6 waveform code per pass: 0x00 =
+    // normal, 0xFF = skip the pass), u8 flags (bit 0: send only the box's
+    // pixels). Redraws the box over the stored image, then notifies WINDOW.
+    INKTAG_CMD_WINDOW = 0x0B,
 };
 
 // Notifications on the control characteristic: [event][status][payload...]
@@ -47,6 +53,8 @@ enum {
     INKTAG_EVT_DISPLAYED = 0x83, // refresh finished; payload: i8 panel temperature (C)
     INKTAG_EVT_INFO      = 0x84, // payload: see inktag_info_t
     INKTAG_EVT_CHALLENGE = 0x85, // payload: 16-byte nonce to answer with AUTH (fw 0.4+)
+    INKTAG_EVT_WINDOW    = 0x86, // window test done; payload: i8 temperature, u8 code1, u8 code2,
+                                 // u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (fw 0.5+)
     INKTAG_EVT_ERROR     = 0x8F, // status holds the error; payload: u8 command that failed
 };
 

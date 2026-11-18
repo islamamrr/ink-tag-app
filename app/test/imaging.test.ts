@@ -3,6 +3,9 @@ import {
   colorShares,
   computeFit,
   convert,
+  convertCompare,
+  QUAD_HEIGHT,
+  QUAD_WIDTH,
   convertFitted,
   crc32,
   dither,
@@ -159,6 +162,85 @@ test('full pipeline on a photo, with timings', () => {
   const big = { width: 1200, height: 900, data: new Uint8Array(1200 * 900 * 4).fill(200) };
   expect(convert(big, { fit: 'cover' }).frame.length).toBe(FRAME_BYTES);
 });
+
+describe('looks', () => {
+  const photo = () => {
+    const img = { width: W, height: H, data: new Uint8Array(W * H * 4) };
+    for (let i = 0; i < W * H; i++) {
+      const x = i % W;
+      img.data.set([x % 256, (x * 2) % 256, 255 - (x % 256), 255], i * 4);
+    }
+    return img;
+  };
+
+  test("'today' is exactly the default pipeline", () => {
+    const a = convertFitted(photo());
+    const b = convertFitted(photo(), { look: 'today' });
+    expect(b.crc32).toBe(a.crc32);
+  });
+
+  test('other looks differ from today and keep the frame size', () => {
+    const today = convertFitted(photo(), { look: 'today' });
+    for (const look of ['boost', 'fit', 'fit-curve'] as const) {
+      const c = convertFitted(photo(), { look });
+      expect(c.frame.length).toBe(FRAME_BYTES);
+      expect(c.crc32).not.toBe(today.crc32);
+    }
+  });
+
+  test("'fit' draws a light tone with less of the panel's grey white", () => {
+    const img = photo();
+    img.data.fill(225); // light, flat
+    const today = convertFitted(img, { look: 'today' }).shares.white;
+    const fit = convertFitted(img, { look: 'fit' }).shares.white;
+    expect(fit).toBeLessThan(today);
+  });
+});
+
+test('compare screen builds one full frame from a 264 x 396 picture', () => {
+  const small = { width: QUAD_WIDTH, height: QUAD_HEIGHT, data: new Uint8Array(QUAD_WIDTH * QUAD_HEIGHT * 4).fill(128) };
+  const c = convertCompare(small);
+  expect(c.frame.length).toBe(FRAME_BYTES);
+  expect(c.preview.width).toBe(W);
+  expect(() => convertCompare({ ...small, width: 10 })).toThrow();
+});
+
+describe('dither options', () => {
+  const ramp = () => {
+    const img = { width: 64, height: 64, data: new Uint8Array(64 * 64 * 4) };
+    for (let i = 0; i < 64 * 64; i++) img.data.set([100 + (i % 64), 90 + (i % 64), 140, 255], i * 4);
+    return img;
+  };
+  test.each(['jarvis', 'stucki', 'sierra', 'burkes'] as const)('%s runs and uses several colours', (method) => {
+    const out = dither(ramp(), { method });
+    expect(new Set(out).size).toBeGreaterThan(1);
+    expect(out.length).toBe(64 * 64);
+  });
+  test('whitePenalty uses less white', () => {
+    const count = (o: number[]) => o.filter((v) => v === 1).length;
+    const base = count(Array.from(dither(ramp(), { method: 'floyd-steinberg' })));
+    const pen = count(Array.from(dither(ramp(), { method: 'floyd-steinberg', whitePenalty: 0.01 })));
+    expect(pen).toBeLessThan(base);
+  });
+  test('sharpen 0 leaves the frame alone; more changes it', () => {
+    const img = ramp();
+    for (let i = 0; i < 64 * 64; i += 3) img.data[i * 4] = 250;
+    const a = convertFitted(photoFull(), {}).crc32;
+    expect(convertFitted(photoFull(), { sharpen: 0 }).crc32).toBe(a);
+    expect(convertFitted(photoFull(), { sharpen: 1 }).crc32).not.toBe(a);
+  });
+});
+
+function photoFull() {
+  const img = { width: W, height: H, data: new Uint8Array(W * H * 4) };
+  for (let i = 0; i < W * H; i++) {
+    const x = i % W;
+    const y = Math.floor(i / W);
+    const v = (x + y) % 40 < 20 ? 60 : 200;
+    img.data.set([v, 120, 255 - v, 255], i * 4);
+  }
+  return img;
+}
 
 test('the app shows pictures in the screen inks, and the frame is unchanged by that', () => {
   const src = rgbToRgba(golden('photo_fitted_rgb'), W, H);

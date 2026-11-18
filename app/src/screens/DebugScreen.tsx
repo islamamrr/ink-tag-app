@@ -17,6 +17,7 @@ import {
   Color,
   type ColorName,
   type Converted,
+  convertCompare,
   convertFitted,
   DisconnectedError,
   type DisplayOutcome,
@@ -24,6 +25,9 @@ import {
   ErrorCode,
   type FitMode,
   frameToRgba,
+  LOOKS,
+  QUAD_HEIGHT,
+  QUAD_WIDTH,
   panelAnswering,
   type RadioState,
   supportsTemp,
@@ -47,6 +51,20 @@ import { type Picture, pickPhoto, renderFitted, toSkImage } from '../services/pi
 import { loadPrefs, type Prefs, savePrefs } from '../services/prefs';
 import { bluetoothAvailable, watchBluetooth } from '../services/radio';
 import { Banner, Bar, Btn, Card, KV, Row, s } from './devUi';
+
+const DITHERS: readonly DitherMethod[] = [
+  'floyd-steinberg',
+  'atkinson',
+  'jarvis',
+  'stucki',
+  'sierra',
+  'burkes',
+  'none',
+];
+const WHITE_STEPS = [0, 0.002, 0.005, 0.01];
+const SHARPEN_STEPS = [0, 0.5, 1];
+/** The entry after `cur` in `list`, wrapping round. */
+const next = <T,>(list: readonly T[], cur: T): T => list[(list.indexOf(cur) + 1) % list.length];
 
 const PREVIEW_W = 150;
 const PREVIEW_H = 225;
@@ -318,18 +336,51 @@ export default function DebugScreen() {
   // ---------------------------------------------------------------- picture
 
   /** Converts on the JS thread; fine for testing. Returns the frame for Pick & send. */
-  const reconvert = (p: Picture | null, f: FitMode, m: DitherMethod): Converted | null => {
+  const reconvert = (
+    p: Picture | null,
+    f: FitMode,
+    over: Partial<Prefs> = {},
+  ): Converted | null => {
     if (!p) return null;
+    const o = { ...prefs, ...over };
+    if (compareMode.current) {
+      const t = Date.now();
+      const c = convertCompare(renderFitted(p, QUAD_WIDTH, QUAD_HEIGHT, f));
+      setConverted(c);
+      setPreview(toSkImage(c.preview));
+      add('app', `compare A-D built in ${Date.now() - t} ms`);
+      return c;
+    }
     const { width, height } = targetSize('portrait');
     const t0 = Date.now();
     const fitted = renderFitted(p, width, height, f);
     const tFit = Date.now() - t0;
-    const c = convertFitted(fitted, { dither: { method: m } });
+    const c = convertFitted(fitted, {
+      look: o.look,
+      sharpen: o.sharpen,
+      dither: {
+        method: o.dither,
+        whitePenalty: o.whitePenalty,
+        ...(o.errorSpace === 'auto' ? {} : { errorSpace: o.errorSpace }),
+      },
+    });
     setConverted(c);
     setPreview(toSkImage(c.preview));
     const total = tFit + Object.values(c.timings).reduce((a, b) => a + b, 0);
-    add('app', `converted in ${total} ms (fit ${tFit}, ${JSON.stringify(c.timings)})`);
+    add(
+      'app',
+      `converted in ${total} ms: look ${o.look}, ${o.dither}, error ${o.errorSpace}, ` +
+        `white +${o.whitePenalty}, sharpen ${o.sharpen} (fit ${tFit}, ${JSON.stringify(c.timings)})`,
+    );
     return c;
+  };
+
+  /** True while the picture is the 4-up A-D comparison rather than one look. */
+  const compareMode = useRef(false);
+  const [comparing, setComparing] = useState(false);
+  const setCompare = (on: boolean) => {
+    compareMode.current = on;
+    setComparing(on);
   };
 
   const pick = async () => {
@@ -337,25 +388,40 @@ export default function DebugScreen() {
     if (!p) return null;
     setPicture(p);
     add('app', `photo ${p.width}×${p.height}`);
-    return reconvert(p, prefs.fit, prefs.dither);
+    return reconvert(p, prefs.fit);
   };
 
-  const doPick = () => run('Opening photo', async () => void (await pick()));
+  const doPick = () =>
+    run('Opening photo', async () => {
+      setCompare(false);
+      await pick();
+    });
+
+  /** Four looks of one photo on one screen (A today, B boost, C fit, D fit + curve). */
+  const doCompareAndSend = () =>
+    run('Opening photo', async () => {
+      setCompare(true);
+      const c = await pick();
+      if (c) await sendFrame(c);
+    });
 
   const doPickAndSend = () =>
     run('Opening photo', async () => {
+      setCompare(false);
       const c = await pick();
       if (c) await sendFrame(c);
     });
 
   const changeFit = (f: FitMode) => {
     setPrefs({ fit: f });
-    reconvert(picture, f, prefs.dither);
+    reconvert(picture, f);
   };
 
-  const changeMethod = (m: DitherMethod) => {
-    setPrefs({ dither: m });
-    reconvert(picture, prefs.fit, m);
+  /** Changes one setting and redraws the preview from the loaded photo. */
+  const change = (patch: Partial<Prefs>) => {
+    setPrefs(patch);
+    if ('look' in patch) setCompare(false);
+    reconvert(picture, prefs.fit, patch);
   };
 
   // ---------------------------------------------------------------- progress
@@ -642,6 +708,11 @@ export default function DebugScreen() {
             disabled={!conn || !converted || !!busy}
           />
           <Btn
+            label="Compare looks A–D & send"
+            onPress={doCompareAndSend}
+            disabled={!!busy || !conn}
+          />
+          <Btn
             label="Cancel"
             kind="danger"
             onPress={() => abortRef.current?.abort()}
@@ -649,6 +720,12 @@ export default function DebugScreen() {
           />
         </Row>
         <Row>
+          <Btn
+            label={comparing ? 'Look: A–D compare' : `Look: ${prefs.look}`}
+            kind="quiet"
+            onPress={() => change({ look: next(LOOKS, prefs.look) })}
+            disabled={!!busy}
+          />
           <Btn
             label={`Fit: ${prefs.fit}`}
             kind="quiet"
@@ -658,15 +735,27 @@ export default function DebugScreen() {
           <Btn
             label={`Dither: ${prefs.dither}`}
             kind="quiet"
-            onPress={() =>
-              changeMethod(
-                prefs.dither === 'floyd-steinberg'
-                  ? 'atkinson'
-                  : prefs.dither === 'atkinson'
-                    ? 'none'
-                    : 'floyd-steinberg',
-              )
-            }
+            onPress={() => change({ dither: next(DITHERS, prefs.dither) })}
+            disabled={!!busy}
+          />
+        </Row>
+        <Row>
+          <Btn
+            label={`Error in: ${prefs.errorSpace}`}
+            kind="quiet"
+            onPress={() => change({ errorSpace: next(['auto', 'srgb', 'oklab'] as const, prefs.errorSpace) })}
+            disabled={!!busy}
+          />
+          <Btn
+            label={`Less white: ${prefs.whitePenalty || 'off'}`}
+            kind="quiet"
+            onPress={() => change({ whitePenalty: next(WHITE_STEPS, prefs.whitePenalty) })}
+            disabled={!!busy}
+          />
+          <Btn
+            label={`Sharpen: ${prefs.sharpen || 'off'}`}
+            kind="quiet"
+            onPress={() => change({ sharpen: next(SHARPEN_STEPS, prefs.sharpen) })}
             disabled={!!busy}
           />
         </Row>
