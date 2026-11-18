@@ -3,7 +3,7 @@
     "name": "Ink Tag",
     "slug": "inktag",
     "scheme": "inktag",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -24,7 +24,8 @@
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT"
-      ]
+      ],
+      "versionCode": 30
     },
     "plugins": [
       [
