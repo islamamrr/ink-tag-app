@@ -5,6 +5,7 @@ import { crc32 } from '../protocol/crc32';
 import { colorShares, dither } from './dither';
 import { frameToRgba, packFrame, PORTRAIT_HEIGHT, PORTRAIT_WIDTH } from './frame';
 import { applyLook, COMPARE_LOOKS, lookDither } from './look';
+import { SCREEN_PALETTE } from './palette';
 import type { Converted } from './pipeline';
 import type { RgbaImage } from './rgba';
 
@@ -59,6 +60,7 @@ export function convertCompare(img: RgbaImage): Converted {
     frame,
     crc32: crc32(frame),
     preview: frameToRgba(frame),
+    display: frameToRgba(frame, 'portrait', undefined, SCREEN_PALETTE),
     shares: colorShares(full),
     timings: { tone: 0, dither: tDither, pack: 0, preview: 0 },
   };

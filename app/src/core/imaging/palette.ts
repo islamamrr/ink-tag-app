@@ -20,6 +20,21 @@ export const PALETTE: readonly PaletteEntry[] = [
   { name: 'green', rgb: [40, 82, 57], code: Color.green },
 ];
 
+/**
+ * The same six inks as the app paints them on screen: bright and clean, like
+ * the badge looks in daylight, not the dull measured values above. Only for
+ * showing pictures in the app. Picking colours, dithering and everything sent
+ * to the badge use PALETTE. The debug screen keeps PALETTE to check the panel.
+ */
+export const SCREEN_PALETTE: readonly PaletteEntry[] = [
+  { name: 'black', rgb: [24, 24, 27], code: Color.black },
+  { name: 'white', rgb: [244, 241, 234], code: Color.white },
+  { name: 'yellow', rgb: [245, 204, 0], code: Color.yellow },
+  { name: 'red', rgb: [216, 57, 43], code: Color.red },
+  { name: 'blue', rgb: [36, 80, 200], code: Color.blue },
+  { name: 'green', rgb: [46, 139, 87], code: Color.green },
+];
+
 // ------------------------------------------------------------ Oklab
 
 /** sRGB byte → linear light, 0..1. */
