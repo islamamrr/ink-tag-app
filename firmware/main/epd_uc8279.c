@@ -570,6 +570,86 @@ static esp_err_t window_pass(const epd_window_t *win, const uint8_t map[16], uin
     return refresh_timed(true, ms);
 }
 
+// ---------------------------------------------------------------- early stop test
+
+// Starts the normal pass-1 refresh of a box, then stops it after stop_ms by
+// powering the panel off (POF 0x02) or by a hardware reset, and optionally
+// runs the short pass 2 normally afterwards. Finds out whether a refresh cut
+// short leaves a readable change, and how the box looks after pass 2.
+static esp_err_t early_stop_passes(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                                   const epd_stop_t *stop, epd_stop_result_t *res)
+{
+    int8_t temp;
+    uint8_t code1, code2;
+
+    ESP_RETURN_ON_ERROR(panel_init_regs(), TAG, "init");
+    ESP_RETURN_ON_ERROR(panel_read_temperature(&temp), TAG, "temp");
+    s_last_temp = temp;
+    temperature_codes(temp, &code1, &code2);
+    ESP_RETURN_ON_ERROR(force_temperature(code1), TAG, "code1");
+    ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win");
+    ESP_RETURN_ON_ERROR(send_box_pass(PASS1_MAP, win, reader, ctx), TAG, "box1");
+    ESP_RETURN_ON_ERROR(CMD(0x17, 0xA5), TAG, "refresh");
+
+    int64_t t0 = esp_timer_get_time();
+    while (gpio_get_level(PIN_BUSY) == 1) {
+        if (esp_timer_get_time() - t0 >= REFRESH_START_MS * 1000LL) {
+            return ESP_ERR_TIMEOUT;  // never went busy: no panel
+        }
+        esp_rom_delay_us(100);
+    }
+    t0 = esp_timer_get_time();
+    res->finished_first = false;
+    while ((esp_timer_get_time() - t0) / 1000 < stop->stop_ms) {
+        if (gpio_get_level(PIN_BUSY) == 1) {
+            res->finished_first = true;  // the refresh ended before the timer
+            break;
+        }
+        esp_rom_delay_us(500);
+    }
+    res->stopped_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000);
+    ESP_LOGW(TAG, "early stop: %s after %lu ms%s", stop->method == EPD_STOP_RESET ? "reset" : "power off",
+             (unsigned long)res->stopped_ms, res->finished_first ? " (refresh had already ended)" : "");
+
+    if (!res->finished_first) {
+        if (stop->method == EPD_STOP_RESET) {
+            ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
+        } else {
+            ESP_RETURN_ON_ERROR(write_cmd(0x02), TAG, "POF");
+            ESP_RETURN_ON_ERROR(wait_busy(), TAG, "POF busy");
+        }
+    }
+    if (stop->flags & EPD_STOP_THEN_PASS2) {
+        if (stop->method == EPD_STOP_RESET) {
+            ESP_RETURN_ON_ERROR(panel_init_regs(), TAG, "init2");
+        }
+        ESP_RETURN_ON_ERROR(force_temperature(code2), TAG, "code2");
+        ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win2");
+        ESP_RETURN_ON_ERROR(send_box_pass(PASS2_MAP, win, reader, ctx), TAG, "box2");
+        ESP_RETURN_ON_ERROR(refresh_timed(true, &res->pass2_ms), TAG, "pass2");
+    }
+    return ESP_OK;
+}
+
+esp_err_t epd_show_early_stop(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                              const epd_stop_t *stop, epd_stop_result_t *res)
+{
+    memset(res, 0, sizeof(*res));
+    if (win->w == 0 || win->h == 0 || win->x % 8 || win->w % 8 ||
+        win->x + win->w > EPD_WIDTH || win->y + win->h > EPD_HEIGHT ||
+        (uint32_t)win->w * win->h > EPD_STOP_MAX_AREA ||
+        stop->stop_ms < 100 || stop->stop_ms > 30000 || stop->method > EPD_STOP_RESET) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
+    esp_err_t err = early_stop_passes(win, reader, ctx, stop, res);
+    if (err != ESP_OK) {
+        CMD(0x07, 0xA5);
+        return err;
+    }
+    return panel_sleep();
+}
+
 static esp_err_t show_window_passes(const epd_window_t *win, epd_reader_t reader, void *ctx,
                                     epd_window_result_t *res)
 {

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
 
@@ -73,6 +74,30 @@ typedef struct {
 // skipped passes. Leaves the panel in deep sleep.
 esp_err_t epd_show_window(const epd_window_t *win, epd_reader_t reader, void *ctx,
                           epd_window_result_t *res);
+
+// Early-stop test (experimental, firmware 0.6.1): starts the normal pass-1
+// refresh of a box and stops it after stop_ms, by power-off (POF) or by a
+// hardware reset, then optionally runs pass 2 normally. `win` gives the box
+// and fill (codes and flags are ignored); only box data is sent.
+#define EPD_STOP_POWEROFF 0
+#define EPD_STOP_RESET    1
+#define EPD_STOP_THEN_PASS2 0x01
+#define EPD_STOP_MAX_AREA (200 * 200)
+
+typedef struct {
+    uint16_t stop_ms;  // 100..30000
+    uint8_t method;    // EPD_STOP_*
+    uint8_t flags;     // EPD_STOP_THEN_PASS2
+} epd_stop_t;
+
+typedef struct {
+    uint32_t stopped_ms;   // time from BUSY going low to the stop
+    uint32_t pass2_ms;     // 0 if pass 2 wasn't run
+    bool finished_first;   // the refresh ended before the timer, nothing was cut short
+} epd_stop_result_t;
+
+esp_err_t epd_show_early_stop(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                              const epd_stop_t *stop, epd_stop_result_t *res);
 
 // Custom-waveform probe (experimental, firmware 0.6). Stores a register
 // value in RAM for the next EPD_WIN_CUSTOM_LUT window: 0x20-0x2F (LUT, 1-64

@@ -37,6 +37,7 @@ Request the largest MTU the phone allows (the badge accepts up to 517). All mult
 | `0x08` | LOCK | 16-byte owner key | locks the badge to the phone holding the key (or changes the key), then INFO. Firmware 0.4+ |
 | `0x09` | AUTH | none, or 16-byte answer | none: CHALLENGE. With an answer: INFO if it's right, ERROR locked if not. Firmware 0.4+ |
 | `0x0A` | UNLOCK | – | erases the owner key, then INFO. Firmware 0.4+ |
+| `0x0D` | STOP | u16 x, u16 y, u16 w, u16 h, u8 fill, u16 stop_ms, u8 method, u8 flags | experimental: starts pass 1 of a box refresh and stops it after stop_ms (method 0 power off, 1 reset; flags bit 0 runs pass 2 after), then STOP. Firmware 0.6.1+, see [EARLYSTOP.md](EARLYSTOP.md) |
 | `0x0C` | LUT | u8 register, then its data | experimental: stores a register for the custom-waveform probe, then LUT. Firmware 0.6+, see [PROBE.md](PROBE.md) |
 | `0x0B` | WINDOW | u16 x, u16 y, u16 w, u16 h, u8 fill, u8 code1, u8 code2, u8 flags | experimental: redraws one box over the stored image, then WINDOW. Firmware 0.5+, see [Window test](#window-test-firmware-05-experimental) |
 
@@ -52,6 +53,7 @@ Every notification starts with `[event][status]`.
 | `0x84` | INFO | u8 protocol, u8 fw major, u8 minor, u8 patch, u16 width, u16 height, u8 native format, u8 has image, i8 temperature (−128 = unknown), u32 max upload length, then from firmware 0.2: i8 temperature override (−128 = off), then from firmware 0.3: 3 bytes panel id read at boot (all `FF` or all `00` = the panel didn't answer; show a wiring warning), then from firmware 0.4: u8 lock flags (bit 0 locked, bit 1 this connection may change the badge) |
 | `0x85` | CHALLENGE | 16-byte nonce (firmware 0.4+) |
 | `0x86` | WINDOW | i8 panel temperature, u8 code1, u8 code2 (as used), u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (firmware 0.5+) |
+| `0x88` | STOP | u32 ms until the stop, u32 pass 2 ms (0 = not run), u8 1 if the refresh had already ended (firmware 0.6.1+) |
 | `0x87` | LUT | u8 register, u8 registers now held (firmware 0.6+) |
 | `0x8F` | ERROR | u8 opcode that failed; status holds the error |
 

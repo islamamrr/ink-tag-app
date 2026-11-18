@@ -14,6 +14,7 @@ the app's image pipeline and BLE protocol (docs/PROTOCOL.md).
     python inktag.py temp 35                   # pretend the panel is 35 C ("off" = read it again)
     python inktag.py window 304 200 184 128 black            # redraw one box only
     python inktag.py window 304 200 184 128 white --code1 skip --code2 90
+    python inktag.py stop 40 200 64 64 black --ms 3000          # early-stop test (firmware 0.6.1+)
     python inktag.py probe zero                # custom-waveform probe (firmware 0.6+), see PROBE.md
     python inktag.py probe pulse 20
     python inktag.py probe push 20 --dir a
@@ -58,6 +59,8 @@ UUID_DATA = UUID_BASE.format(0x0002)
 CMD_BEGIN, CMD_END, CMD_SHOW, CMD_CLEAR, CMD_INFO, CMD_ABORT, CMD_TEMP = 1, 2, 3, 4, 5, 6, 7
 CMD_WINDOW = 0x0B
 CMD_LUT = 0x0C
+CMD_STOP = 0x0D
+EVT_STOP = 0x88
 EVT_READY, EVT_RECEIVED, EVT_DISPLAYED, EVT_INFO, EVT_ERROR = 0x81, 0x82, 0x83, 0x84, 0x8F
 EVT_WINDOW = 0x86
 EVT_LUT = 0x87
@@ -291,6 +294,20 @@ async def run_ble(args, frame=None):
                 print(f"  pass {n}: " + ("skipped" if code == WINDOW_CODE_SKIP else f"{ms} ms (code {code})"))
             return
 
+        if args.cmd == "stop":
+            if args.x % 8 or args.w % 8 or args.w * args.h > 200 * 200:
+                sys.exit("x and width must be multiples of 8, box at most 200x200")
+            await tag.command(struct.pack("<BHHHHBHBB", CMD_STOP, args.x, args.y, args.w, args.h,
+                                          COLOR_CODES[args.fill], args.ms,
+                                          1 if args.method == "reset" else 0,
+                                          0 if args.no_pass2 else 1))
+            print(f"pass 1 of the box, stopped after {args.ms} ms by {args.method}...")
+            m = await tag.expect(EVT_STOP, 150)
+            stopped, p2, early = struct.unpack_from("<IIB", m, 2)
+            print(f"  stopped after {stopped} ms" + ("  (the refresh had already ended)" if early else ""))
+            print("  pass 2: " + ("not run" if args.no_pass2 else f"{p2} ms"))
+            return
+
         if args.cmd == "probe":
             if args.kind == "ledger":
                 for key, e in ledger_load().items():
@@ -399,6 +416,17 @@ def main():
                    help="same for pass 2")
     p.add_argument("--full-frame", action="store_true",
                    help="send the whole frame and narrow the window only for the refresh")
+    ble_args(p)
+
+    p = sub.add_parser("stop", help="experimental: stop a box refresh early (firmware 0.6.1+)",
+                       description="Starts pass 1 of a box refresh, stops it after --ms, then runs "
+                                   "the short pass 2 (unless --no-pass2). See docs/EARLYSTOP.md.")
+    for n in ("x", "y", "w", "h"):
+        p.add_argument(n, type=int)
+    p.add_argument("fill", choices=list(COLOR_CODES))
+    p.add_argument("--ms", type=int, default=3000, help="stop after this many ms (100..30000)")
+    p.add_argument("--method", choices=["poweroff", "reset"], default="poweroff")
+    p.add_argument("--no-pass2", action="store_true", help="leave the box as the cut-short pass left it")
     ble_args(p)
 
     p = sub.add_parser("probe", help="experimental: custom waveform on a tiny box (firmware 0.6+)",

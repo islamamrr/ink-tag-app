@@ -7,7 +7,7 @@
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
 #define INKTAG_FW_VERSION_MINOR 6
-#define INKTAG_FW_VERSION_PATCH 0
+#define INKTAG_FW_VERSION_PATCH 1
 
 // 128-bit UUIDs, written here in the usual string order:
 //   service  b5a10000-6e6b-4a7a-9c3e-1f2a3b4c5d6e
@@ -49,6 +49,11 @@ enum {
     // override (1); 0xFF with no data clears them all. Kept in RAM and used by
     // WINDOW with flags bit 1 (custom LUT). Notifies LUT.
     INKTAG_CMD_LUT = 0x0C,
+    // Experimental early-stop test (fw 0.6.1+): u16 x, u16 y, u16 w, u16 h
+    // (x, w multiples of 8, at most 200x200), u8 fill, u16 stop_ms (100..30000),
+    // u8 method (0 power off, 1 hardware reset), u8 flags (bit 0: then run
+    // pass 2). Starts pass 1 of a box refresh, stops it, notifies STOP.
+    INKTAG_CMD_STOP = 0x0D,
 };
 
 // Notifications on the control characteristic: [event][status][payload...]
@@ -61,6 +66,7 @@ enum {
     INKTAG_EVT_WINDOW    = 0x86, // window test done; payload: i8 temperature, u8 code1, u8 code2,
                                  // u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (fw 0.5+)
     INKTAG_EVT_LUT       = 0x87, // LUT stored; payload: u8 register, u8 registers now held (fw 0.6+)
+    INKTAG_EVT_STOP      = 0x88, // early-stop test done; payload: u32 ms until the stop, u32 pass 2 ms (0 = not run), u8 1 if the refresh had already ended (fw 0.6.1+)
     INKTAG_EVT_ERROR     = 0x8F, // status holds the error; payload: u8 command that failed
 };
 

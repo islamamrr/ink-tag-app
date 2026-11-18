@@ -16,7 +16,7 @@ Built and tested to compile with **ESP-IDF v5.3.2** for **ESP32** and **ESP32-C3
 | `main/protocol.h` | BLE protocol constants, shared with the app spec |
 | `docs/PROTOCOL.md` | Protocol description for the phone app |
 | `tools/inktag.py` | PC test tool: converts pictures and sends them over BLE |
-| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0), firmware 0.6.0 with the default pins |
+| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0), firmware 0.6.1 with the default pins |
 | `docs/GETTING_STARTED.md` | Step-by-step from parts to first picture |
 
 ## Wiring
@@ -99,6 +99,14 @@ python tools/inktag.py probe zero
 python tools/inktag.py probe pulse 20
 python tools/inktag.py probe push 20 --dir a
 python tools/inktag.py probe ledger
+```
+
+## Early-stop test (0.6.1, experimental)
+
+A second, separate experiment: start a box refresh and cut it off after a few seconds, to see whether the half-finished change is readable enough for a to-do tick. Steps and the cost to check afterwards: [docs/EARLYSTOP.md](docs/EARLYSTOP.md).
+
+```
+python tools/inktag.py stop 40 200 64 64 black --ms 3000
 ```
 
 ## Not done yet
