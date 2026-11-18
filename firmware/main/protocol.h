@@ -1,4 +1,4 @@
-// Ink Tag BLE protocol, v1. See docs/PROTOCOL.md for the app-side description.
+// Ink Tag BLE protocol, v1 (additions since are marked with the firmware version). See docs/PROTOCOL.md for the app-side description.
 // All multi-byte fields are little endian.
 #pragma once
 
@@ -6,7 +6,7 @@
 
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
-#define INKTAG_FW_VERSION_MINOR 5
+#define INKTAG_FW_VERSION_MINOR 6
 #define INKTAG_FW_VERSION_PATCH 0
 
 // 128-bit UUIDs, written here in the usual string order:
@@ -28,9 +28,9 @@
 
 // Commands written to the control characteristic: [opcode][args...]
 enum {
-    INKTAG_CMD_BEGIN = 0x01, // u8 format, u32 length. Erases storage, then notifies READY.
+    INKTAG_CMD_BEGIN = 0x01, // u8 format, u32 length[, u8 slot, u8 flags (fw 0.6+)]. Erases the slot, then notifies READY.
     INKTAG_CMD_END   = 0x02, // u32 crc32 (zlib) of the whole image. Verifies, stores, refreshes.
-    INKTAG_CMD_SHOW  = 0x03, // redraw the stored image
+    INKTAG_CMD_SHOW  = 0x03, // [u8 slot (fw 0.6+)]: draw a stored picture (default: the current one)
     INKTAG_CMD_CLEAR = 0x04, // u8 color: fill the panel with one color (storage untouched)
     INKTAG_CMD_INFO  = 0x05, // notifies INFO
     INKTAG_CMD_ABORT = 0x06, // cancel an upload in progress
@@ -44,7 +44,14 @@ enum {
     // normal, 0xFF = skip the pass), u8 flags (bit 0: send only the box's
     // pixels). Redraws the box over the stored image, then notifies WINDOW.
     INKTAG_CMD_WINDOW = 0x0B,
+    INKTAG_CMD_DELETE = 0x0C,        // u8 slot: forget that picture. Notifies INFO. (fw 0.6+)
+    INKTAG_CMD_SLOT   = 0x0D,        // u8 slot: notifies SLOT. (fw 0.6+)
+    INKTAG_CMD_UPDATE_BEGIN = 0x0E,  // u32 firmware size: erases the update slot, then notifies READY. (fw 0.6+)
+    INKTAG_CMD_UPDATE_END   = 0x0F,  // u32 crc32 (zlib): checks and installs, notifies UPDATED, restarts. (fw 0.6+)
 };
+
+// BEGIN flags (fw 0.6+)
+#define INKTAG_BEGIN_SHOW 0x01  // draw the picture once it arrives (BEGIN without flags: always)
 
 // Notifications on the control characteristic: [event][status][payload...]
 enum {
@@ -55,6 +62,8 @@ enum {
     INKTAG_EVT_CHALLENGE = 0x85, // payload: 16-byte nonce to answer with AUTH (fw 0.4+)
     INKTAG_EVT_WINDOW    = 0x86, // window test done; payload: i8 temperature, u8 code1, u8 code2,
                                  // u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (fw 0.5+)
+    INKTAG_EVT_UPDATED   = 0x87, // firmware installed; the badge restarts into it about 0.5 s later (fw 0.6+)
+    INKTAG_EVT_SLOT      = 0x88, // payload: u8 slot, u8 used, u8 format, u32 length, u32 crc32 (fw 0.6+)
     INKTAG_EVT_ERROR     = 0x8F, // status holds the error; payload: u8 command that failed
 };
 
@@ -70,7 +79,13 @@ enum {
     INKTAG_ERR_NO_IMAGE = 8,
     INKTAG_ERR_BAD_FORMAT = 9,
     INKTAG_ERR_LOCKED = 10,        // locked to another phone, or a wrong AUTH answer (fw 0.4+)
+    INKTAG_ERR_BAD_SLOT = 11,      // no such picture slot (fw 0.6+)
+    INKTAG_ERR_BAD_FIRMWARE = 12,  // update rejected: not a valid Ink Tag image for this chip (fw 0.6+)
 };
+
+// inktag_info_t.update_flags (fw 0.6+)
+#define INKTAG_UPDATE_RUNNING_SLOT1 0x01  // running from the second app slot
+#define INKTAG_UPDATE_ROLLED_BACK   0x02  // an update failed to start and the badge went back
 
 // inktag_info_t.lock_flags
 #define INKTAG_LOCK_LOCKED     0x01  // an owner key is set
@@ -90,4 +105,9 @@ typedef struct __attribute__((packed)) {
     int8_t temp_override;   // fixed temperature in C, or -128 when reading the panel (fw 0.2+)
     uint8_t panel_id[3];    // panel product revision read at boot; all FF or all 00 = no answer (fw 0.3+)
     uint8_t lock_flags;     // INKTAG_LOCK_* (fw 0.4+)
+    uint8_t slot_count;     // picture slots (fw 0.6+)
+    uint8_t slot_mask;      // bit n set: slot n holds a picture (fw 0.6+)
+    uint8_t current_slot;   // slot on the panel, or 0xFF (fw 0.6+)
+    uint8_t update_flags;   // INKTAG_UPDATE_* (fw 0.6+)
+    uint32_t max_firmware;  // largest firmware image accepted, bytes (fw 0.6+)
 } inktag_info_t;

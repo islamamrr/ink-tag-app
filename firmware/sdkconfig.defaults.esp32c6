@@ -1,0 +1,2 @@
+# B2 board: logs and flashing over the C6's own USB port (GPIO12/13)
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

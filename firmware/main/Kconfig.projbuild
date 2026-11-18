@@ -10,31 +10,37 @@ menu "Ink Tag"
 
         config INKTAG_PIN_SCK
             int "SCL (SPI clock) GPIO"
+            default 19 if IDF_TARGET_ESP32C6
             default 4 if IDF_TARGET_ESP32C3
             default 18
 
         config INKTAG_PIN_SDA
             int "SDA (SPI data, bidirectional) GPIO"
+            default 18 if IDF_TARGET_ESP32C6
             default 6 if IDF_TARGET_ESP32C3
             default 23
 
         config INKTAG_PIN_CS
             int "CSB GPIO"
+            default 20 if IDF_TARGET_ESP32C6
             default 7 if IDF_TARGET_ESP32C3
             default 5
 
         config INKTAG_PIN_DC
             int "D/C GPIO"
+            default 21 if IDF_TARGET_ESP32C6
             default 5 if IDF_TARGET_ESP32C3
             default 17
 
         config INKTAG_PIN_RST
             int "RSTN GPIO"
+            default 22 if IDF_TARGET_ESP32C6
             default 10 if IDF_TARGET_ESP32C3
             default 16
 
         config INKTAG_PIN_BUSY
             int "BUSYN GPIO"
+            default 14 if IDF_TARGET_ESP32C6
             default 3 if IDF_TARGET_ESP32C3
             default 4
 
@@ -46,10 +52,25 @@ menu "Ink Tag"
                 Datasheet p.11: write clock cycle at least 100 ns, so 10 MHz at most.
                 Reads always run at 1 MHz.
 
+        config INKTAG_PIN_EPD_PWR
+            int "Panel power switch GPIO (-1: none)"
+            default 23 if IDF_TARGET_ESP32C6
+            default -1
+            help
+                The B2 board switches the panel supply with a P-FET whose gate
+                is pulled up to 3.3 V: driving this pin low turns the panel on.
+                Dev boards wire the panel to 3.3 V directly: leave at -1.
+
+        config INKTAG_EPD_PWR_ACTIVE_LOW
+            bool "Panel power switch is on when the pin is low"
+            depends on INKTAG_PIN_EPD_PWR >= 0
+            default y
+
     endmenu
 
     config INKTAG_PIN_BUTTON
         int "Button GPIO (held 10 s: unlock the badge)"
+        default 2 if IDF_TARGET_ESP32C6
         default 9 if IDF_TARGET_ESP32C3
         default 0
         help

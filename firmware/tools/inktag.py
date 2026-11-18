@@ -11,6 +11,11 @@ the app's image pipeline and BLE protocol (docs/PROTOCOL.md).
     python inktag.py clear white
     python inktag.py show
     python inktag.py info
+    python inktag.py send photo.jpg --slot 2 --keep   # store in slot 2 without drawing (firmware 0.6+)
+    python inktag.py show --slot 2                    # draw slot 2
+    python inktag.py slots                            # list what each slot holds
+    python inktag.py delete 2
+    python inktag.py update build/inktag.bin          # wireless firmware update (firmware 0.6+)
     python inktag.py temp 35                   # pretend the panel is 35 C ("off" = read it again)
     python inktag.py window 304 200 184 128 black            # redraw one box only
     python inktag.py window 304 200 184 128 white --code1 skip --code2 90
@@ -52,8 +57,11 @@ UUID_DATA = UUID_BASE.format(0x0002)
 
 CMD_BEGIN, CMD_END, CMD_SHOW, CMD_CLEAR, CMD_INFO, CMD_ABORT, CMD_TEMP = 1, 2, 3, 4, 5, 6, 7
 CMD_WINDOW = 0x0B
+CMD_DELETE, CMD_SLOT, CMD_UPDATE_BEGIN, CMD_UPDATE_END = 0x0C, 0x0D, 0x0E, 0x0F   # firmware 0.6+
 EVT_READY, EVT_RECEIVED, EVT_DISPLAYED, EVT_INFO, EVT_ERROR = 0x81, 0x82, 0x83, 0x84, 0x8F
 EVT_WINDOW = 0x86
+EVT_UPDATED, EVT_SLOT = 0x87, 0x88
+BEGIN_SHOW = 0x01                 # BEGIN flags: draw the picture once it arrives
 
 # Window test (firmware 0.5+): see docs/PROTOCOL.md
 WINDOW_STRIPES = 0x10             # fill the box with six color stripes
@@ -86,7 +94,13 @@ def parse_code(text):
 ERRORS = {
     1: "bad command", 2: "bad length", 3: "bad state", 4: "overflow", 5: "CRC mismatch",
     6: "flash error", 7: "panel timeout", 8: "no stored image", 9: "bad format",
+    10: "locked to another phone", 11: "no such slot", 12: "not a valid Ink Tag firmware for this chip",
 }
+
+
+def parse_slot(msg):
+    """SLOT notification -> (slot, used, format, length, crc32)."""
+    return struct.unpack_from("<BBBII", msg, 2)
 
 
 # ------------------------------------------------------------ image pipeline
@@ -176,10 +190,57 @@ async def run_ble(args, frame=None):
             print(f"firmware {ma}.{mi}.{pa}, protocol {proto}, panel {w}x{h}, format {fmt}, "
                   f"stored image: {'yes' if has else 'no'}, "
                   f"temperature: {'unknown' if temp == -128 else f'{temp} C'}, max upload {maxlen}")
-            if len(m) >= 22:   # firmware 0.3+: panel id read at boot
-                pid = m[19:22]
+            if len(m) >= 21:   # firmware 0.3+: panel id read at boot
+                pid = m[18:21]
                 ok = pid not in (b"\xff\xff\xff", b"\x00\x00\x00")
                 print(f"panel id: {pid.hex(' ')} ({'answering' if ok else 'not answering, check the wiring'})")
+            if len(m) >= 30:   # firmware 0.6+: picture slots and updates
+                count, mask, cur, uflags, maxfw = struct.unpack_from("<BBBBI", m, 22)
+                used = [str(i) for i in range(count) if mask >> i & 1]
+                print(f"picture slots: {count}, used: {', '.join(used) or 'none'}, "
+                      f"showing: {'none' if cur == 0xFF else cur}")
+                print(f"firmware slot {1 if uflags & 1 else 0}, largest update {maxfw} bytes"
+                      + (", a failed update was rolled back" if uflags & 2 else ""))
+            return
+
+        if args.cmd == "slots":
+            await tag.command(bytes([CMD_INFO]))
+            m = await tag.expect(EVT_INFO, 5)
+            if len(m) < 30:
+                sys.exit("this firmware has one picture only (slots need firmware 0.6+)")
+            count, cur = m[22], m[24]
+            for i in range(count):
+                await tag.command(bytes([CMD_SLOT, i]))
+                slot, used, fmt, length, crc = parse_slot(await tag.expect(EVT_SLOT, 5))
+                mark = " (showing)" if slot == cur else ""
+                print(f"slot {slot}: " + (f"{length} bytes, crc32 {crc:08x}{mark}" if used else "empty"))
+            return
+
+        if args.cmd == "delete":
+            await tag.command(bytes([CMD_DELETE, args.slot]))
+            await tag.expect(EVT_INFO, 5)
+            print(f"slot {args.slot} emptied")
+            return
+
+        if args.cmd == "update":
+            fw = open(args.firmware, "rb").read()
+            if fw[:1] != b"\xe9":
+                sys.exit("that isn't an app image: use build/inktag.bin, not the merged flash image")
+            await tag.command(struct.pack("<BI", CMD_UPDATE_BEGIN, len(fw)))
+            print("erasing the update slot...")
+            await tag.expect(EVT_READY, 30)
+            chunk = client.mtu_size - 3
+            loop = asyncio.get_running_loop()
+            t0 = loop.time()
+            for i, off in enumerate(range(0, len(fw), chunk)):
+                await client.write_gatt_char(UUID_DATA, fw[off:off + chunk],
+                                             response=args.safe or i % 32 == 31)
+                if i % 200 == 0:
+                    print(f"  {off * 100 // len(fw)}%", end="\r", flush=True)
+            print(f"sent {len(fw)} bytes in {loop.time() - t0:.1f} s")
+            await tag.command(struct.pack("<BI", CMD_UPDATE_END, zlib.crc32(fw)))
+            await tag.expect(EVT_UPDATED, 30)
+            print("installed; the badge restarts into the new firmware. Run 'info' to check the version.")
             return
 
         if args.cmd == "window":
@@ -204,9 +265,13 @@ async def run_ble(args, frame=None):
         if args.cmd == "clear":
             await tag.command(bytes([CMD_CLEAR, COLOR_CODES[args.color]]))
         elif args.cmd == "show":
-            await tag.command(bytes([CMD_SHOW]))
+            await tag.command(bytes([CMD_SHOW] if args.slot is None else [CMD_SHOW, args.slot]))
         else:
-            await tag.command(struct.pack("<BBI", CMD_BEGIN, FMT_NATIVE_4BPP, len(frame)))
+            if args.slot is None:
+                await tag.command(struct.pack("<BBI", CMD_BEGIN, FMT_NATIVE_4BPP, len(frame)))
+            else:
+                await tag.command(struct.pack("<BBIBB", CMD_BEGIN, FMT_NATIVE_4BPP, len(frame),
+                                              args.slot, 0 if args.keep else BEGIN_SHOW))
             await tag.expect(EVT_READY, 15)
             chunk = client.mtu_size - 3
             print(f"sending {len(frame)} bytes in {chunk}-byte chunks")
@@ -218,6 +283,10 @@ async def run_ble(args, frame=None):
             print(f"sent in {loop.time() - t0:.1f} s")
             await tag.command(struct.pack("<BI", CMD_END, zlib.crc32(frame)))
             await tag.expect(EVT_RECEIVED, 15)
+            if args.keep:
+                await tag.expect(EVT_SLOT, 5)
+                print(f"stored in slot {args.slot}, not drawn")
+                return
         print("refreshing panel (this takes a while)...")
         m = await tag.expect(EVT_DISPLAYED, 120)
         print(f"done, panel at {m[2] - 256 if m[2] > 127 else m[2]} C")
@@ -246,6 +315,23 @@ def main():
     image_args(p)
     ble_args(p)
     p.add_argument("--safe", action="store_true", help="acknowledge every chunk (slower, for flaky links)")
+    p.add_argument("--slot", type=int, help="picture slot to store it in (firmware 0.6+; default: the current one)")
+    p.add_argument("--keep", action="store_true", help="store it without drawing it (needs --slot)")
+
+    p = sub.add_parser("show", help="redraw a stored picture")
+    p.add_argument("--slot", type=int, help="which slot (firmware 0.6+; default: the current one)")
+    ble_args(p)
+
+    ble_args(sub.add_parser("slots", help="list the picture slots (firmware 0.6+)"))
+
+    p = sub.add_parser("delete", help="empty a picture slot (firmware 0.6+)")
+    p.add_argument("slot", type=int)
+    ble_args(p)
+
+    p = sub.add_parser("update", help="wireless firmware update (firmware 0.6+)")
+    p.add_argument("firmware", help="the app image, build/inktag.bin")
+    p.add_argument("--safe", action="store_true", help="acknowledge every chunk (slower, for flaky links)")
+    ble_args(p)
 
     p = sub.add_parser("clear", help="fill the panel with one color")
     p.add_argument("color", choices=list(COLOR_CODES))
@@ -270,10 +356,11 @@ def main():
                    help="send the whole frame and narrow the window only for the refresh")
     ble_args(p)
 
-    for name, text in (("show", "redraw the stored image"), ("info", "print device info")):
-        ble_args(sub.add_parser(name, help=text))
+    ble_args(sub.add_parser("info", help="print device info"))
 
     args = ap.parse_args()
+    if getattr(args, "keep", False) and args.slot is None:
+        ap.error("--keep needs --slot")
 
     frame = None
     if args.cmd in ("convert", "send"):
