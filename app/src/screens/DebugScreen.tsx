@@ -482,6 +482,8 @@ export default function DebugScreen() {
     } else if (d.status === 'failed') {
       endOp(false, `${label}: ${userMessage(d.error)}`);
       fail(d.error);
+    } else if (d.status === 'stored') {
+      endOp(true, `${label}: stored in ${took}, not drawn`);
     } else {
       const why =
         d.reason === 'timeout'

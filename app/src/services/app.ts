@@ -80,7 +80,8 @@ export function getServices(): Promise<Services> {
         const values = { ...job.values, dateOnly: job.rule === 'morning' ? 'true' : undefined };
         const design = templateDesign(e, values, { layout: job.layout, orientation: badge.orientation, now: drawAt });
         appLog(`live: ${job.templateId} for ${new Date(drawAt).toISOString()}`);
-        await app.send(job.badgeId, design);
+        // Live pictures replace the one on screen, so they don't push the stored pictures out.
+        await app.send(job.badgeId, design, { slot: 'replace' });
       },
       save: (job) => state.setLive(job),
       describe: userMessage,

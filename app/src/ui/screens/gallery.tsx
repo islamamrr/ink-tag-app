@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
-import { type LibraryFilter, type LibraryItem, SCRATCH } from '../../core';
+import { type LibraryFilter, type LibraryItem, SCRATCH, userMessage } from '../../core';
 import { Btn, Card, Chip, ChipStrip, Col, EmptyState, Field, H, IconBtn, Label, ListRow, Meta, Note, Row, Screen, Sheet, T, useText } from '../kit';
 import { useNav } from '../nav';
 import { BadgeFrame, ItemThumb } from '../pictures';
@@ -13,6 +13,7 @@ import { Icon, InkDot } from '../print';
 import { ago, useServices } from '../services';
 import { FONT, INK, tiltFor } from '../theme';
 import { Grid } from './templates';
+import { keptIn } from '../slots';
 
 /** "Now on My badge" with one badge; a strip of badges with two or more. */
 function NowOn() {
@@ -86,6 +87,7 @@ export function GalleryScreen() {
   const items = app.library.list(filter);
   const all = app.library.list();
   const collections = app.library.collections();
+  const kept = badge ? app.slots(badge.id) : null;
   const tileW = Math.floor((width - 40 - 16) / 2);
   const starters = ['name-badge', 'todo', 'clock', 'status-board'].map((id) => catalog.get(id)!).filter(Boolean);
 
@@ -112,16 +114,17 @@ export function GalleryScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 20 }}>
               {items.map((it, i) => {
                 const onBadge = badge?.shownItemId === it.id;
+                const isKept = !onBadge && keptIn(kept, it.id).length > 0;
                 return (
                   <Pressable
                     key={it.id}
                     onPress={() => nav.push({ name: 'item', id: it.id })}
                     style={({ pressed }) => [{ width: tileW, gap: 6 }, pressed && { opacity: 0.75 }]}
                     accessibilityRole="button"
-                    accessibilityLabel={`${it.title}${onBadge ? ', on your badge' : ''}${it.favourite ? ', favourite' : ''}`}
+                    accessibilityLabel={`${it.title}${onBadge ? ', on your badge' : isKept ? ', kept on your badge' : ''}${it.favourite ? ', favourite' : ''}`}
                   >
                     <View>
-                      <ItemThumb app={app} itemId={it.id} width={tileW} orientation={it.scene.orientation} tilt={tiltFor(i)} sticker={onBadge ? 'ON BADGE' : undefined} />
+                      <ItemThumb app={app} itemId={it.id} width={tileW} orientation={it.scene.orientation} tilt={tiltFor(i)} sticker={onBadge ? 'ON BADGE' : isKept ? 'KEPT' : undefined} />
                       {it.favourite && (
                         <View style={{ position: 'absolute', left: 8, top: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: INK.paper, borderWidth: 2, borderColor: INK.black, alignItems: 'center', justifyContent: 'center' }}>
                           <Icon name="heart" size={16} color={INK.red} fill />
@@ -195,6 +198,8 @@ export function ItemScreen({ id }: { id: string }) {
   const { width } = useWindowDimensions();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const [keeping, setKeeping] = useState(false);
+  const [kept, setKept] = useState<string | null>(null);
   const it = app.library.get(id);
   if (!it)
     return (
@@ -205,6 +210,21 @@ export function ItemScreen({ id }: { id: string }) {
   const o = it.scene.orientation;
   const last = it.sends[it.sends.length - 1];
   const onBadge = badge?.shownItemId === it.id;
+  const slots = badge ? app.slots(badge.id) : null;
+  const inSlots = keptIn(slots, it.id);
+  const keep = async () => {
+    if (!badge) return;
+    setKeeping(true);
+    setKept(null);
+    try {
+      const r = await app.send(badge.id, { itemId: it.id }, { draw: false });
+      setKept(`Kept in slot ${(r.slot ?? 0) + 1} on ${badge.name}. Its screen didn't change.`);
+    } catch (e) {
+      setKept(`Couldn't keep it on ${badge.name}. ${userMessage(e)}`);
+    } finally {
+      setKeeping(false);
+    }
+  };
   const editCopy = () => {
     if (it.template && catalog.get(it.template.id)) {
       const e = catalog.get(it.template.id)!;
@@ -233,13 +253,18 @@ export function ItemScreen({ id }: { id: string }) {
       right={<IconBtn icon="heart" fill={it.favourite} label={it.favourite ? 'Remove from favourites' : 'Add to favourites'} onPress={() => app.library.setFavourite(it.id, !it.favourite)} />}
     >
       <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 6 }}>
-        <ItemThumb app={app} itemId={it.id} width={o === 'portrait' ? Math.min(240, width * 0.6) : width - 70} orientation={o} tilt={-2} shadow={INK.black} device sticker={onBadge ? 'ON BADGE' : undefined} />
+        <ItemThumb app={app} itemId={it.id} width={o === 'portrait' ? Math.min(240, width * 0.6) : width - 70} orientation={o} tilt={-2} shadow={INK.black} device sticker={onBadge ? 'ON BADGE' : inSlots.length ? 'KEPT' : undefined} />
       </View>
       <Col gap={4}>
         <H size={30}>{it.title}</H>
         <Label muted>{it.sends.length ? `Sent ${it.sends.length === 1 ? 'once' : `${it.sends.length} times`}, last ${ago(last.at)}` : 'Not sent yet'}</Label>
+        {badge && inSlots.length > 0 && <Label muted>{`Kept on ${badge.name} (slot ${inSlots[0] + 1}): showing it needs no upload`}</Label>}
       </Col>
       <Btn kind="primary" label={badge ? `Print to ${badge.name}` : 'Set up a badge to print'} onPress={() => (badge ? nav.push({ name: 'send', itemId: it.id }) : nav.push({ name: 'setup' }))} />
+      {badge && slots && inSlots.length === 0 && (
+        <Btn label={`Keep on ${badge.name} without showing`} busy={keeping} disabled={keeping} onPress={keep} />
+      )}
+      {kept && <T muted>{kept}</T>}
       <Row gap={10}>
         <Btn flex label="Edit a copy" onPress={editCopy} />
         <Btn flex label="Add to…" onPress={() => setAdding(true)} />

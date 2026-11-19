@@ -8,6 +8,16 @@ import { JsonDoc, type Storage } from './storage';
 
 export type BadgeKind = 'ble' | 'demo';
 
+/** One picture slot on the badge (fw 0.6+), as last read from it. */
+export interface SlotRecord {
+  /** CRC-32 of the stored frame, as the badge reports it. */
+  crc32: number;
+  /** The library item with that frame, if this phone has it. */
+  itemId?: string;
+  /** Last stored or drawn by this phone (0 if never): the oldest is reused first. */
+  usedAt: number;
+}
+
 export interface SavedBadge {
   /** Bluetooth id (MAC on Android, a UUID on iOS), or "demo-…" for a simulated badge. */
   id: string;
@@ -36,6 +46,13 @@ export interface SavedBadge {
   screen?: ScreenCheck;
   /** A firmware version that failed to start on this badge: not installed again on its own. */
   skipFirmware?: string;
+  /**
+   * Fw 0.6+: the badge's picture slots (index = slot number, null = empty),
+   * as of the last connection. Absent on older firmware, which keeps one picture.
+   */
+  slots?: (SlotRecord | null)[];
+  /** The slot the badge drew last (what it shows), or null. */
+  currentSlot?: number | null;
 }
 
 interface BadgesDoc {

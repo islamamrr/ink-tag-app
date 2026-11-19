@@ -26,7 +26,7 @@ export const MAX_ATTR_LEN = 512;
 export const FMT_NATIVE_4BPP = 0x01;
 
 export const Cmd = {
-  BEGIN: 0x01, // u8 format, u32 length
+  BEGIN: 0x01, // u8 format, u32 length, then (fw 0.6+) optional u8 slot and u8 flags
   END: 0x02, // u32 crc32
   SHOW: 0x03,
   CLEAR: 0x04, // u8 color
@@ -136,6 +136,11 @@ export const TEMP_MAX = 60;
 export const LOCK_KEY_BYTES = 16;
 
 /** INFO update flags (fw 0.6+). */
+/** BEGIN flags (fw 0.6+), bit 0: draw the picture once it has arrived. Without it, only store it. */
+export const BEGIN_SHOW = 0x01;
+/** INFO's "no current slot" (fw 0.6+). */
+export const SLOT_NONE = 0xff;
+
 export const UPDATE_RUNNING_SLOT1 = 0x01;
 export const UPDATE_ROLLED_BACK = 0x02;
 

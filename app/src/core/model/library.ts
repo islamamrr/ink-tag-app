@@ -86,6 +86,11 @@ export class Library {
 
   // ------------------------------------------------------------ reading
 
+  /** The item whose frame has this CRC-32 (what a badge slot reports), if any. */
+  byCrc(crc: number): LibraryItem | undefined {
+    return this.doc.items.find((i) => i.crc32 === crc >>> 0);
+  }
+
   get(id: string) {
     return this.doc.items.find((i) => i.id === id);
   }

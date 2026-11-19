@@ -2,6 +2,7 @@
 // All multi-byte fields are little endian.
 
 import {
+  BEGIN_SHOW,
   Chip,
   CHIP_NAMES,
   Cmd,
@@ -18,12 +19,26 @@ import {
   UPDATE_RUNNING_SLOT1,
 } from './constants';
 
-export const encodeBegin = (length: number, format: number = FMT_NATIVE_4BPP): Uint8Array => {
-  const b = new Uint8Array(6);
+/**
+ * BEGIN. Without a slot (and on firmware before 0.6) the picture replaces the
+ * current one and is drawn. With a slot (fw 0.6+) it goes there, and `flags`
+ * (BEGIN_SHOW) says whether to draw it.
+ */
+export const encodeBegin = (
+  length: number,
+  format: number = FMT_NATIVE_4BPP,
+  slot?: number,
+  flags: number = BEGIN_SHOW,
+): Uint8Array => {
+  const b = new Uint8Array(slot === undefined ? 6 : 8);
   const v = new DataView(b.buffer);
   b[0] = Cmd.BEGIN;
   b[1] = format;
   v.setUint32(2, length, true);
+  if (slot !== undefined) {
+    b[6] = slot & 0xff;
+    b[7] = flags & 0xff;
+  }
   return b;
 };
 
@@ -34,7 +49,9 @@ export const encodeEnd = (crc32: number): Uint8Array => {
   return b;
 };
 
-export const encodeShow = () => Uint8Array.of(Cmd.SHOW);
+/** SHOW the current picture, or (fw 0.6+) a stored slot, which then becomes current. */
+export const encodeShow = (slot?: number) =>
+  slot === undefined ? Uint8Array.of(Cmd.SHOW) : Uint8Array.of(Cmd.SHOW, slot & 0xff);
 export const encodeClear = (color: number) => Uint8Array.of(Cmd.CLEAR, color & 0xff);
 export const encodeInfo = () => Uint8Array.of(Cmd.INFO);
 export const encodeAbort = () => Uint8Array.of(Cmd.ABORT);
@@ -167,6 +184,34 @@ export function parseInfo(data: Uint8Array): TagInfo {
   return info;
 }
 
+/** What one picture slot holds (the SLOT event, fw 0.6+). */
+export interface SlotInfo {
+  slot: number;
+  used: boolean;
+  format: number;
+  length: number;
+  /** CRC-32 of the stored frame: the same number as a library item's crc32. */
+  crc32: number;
+}
+
+export function parseSlot(data: Uint8Array): SlotInfo {
+  if (data.length < 13 || data[0] !== Evt.SLOT) throw new Error(`malformed SLOT (${data.length} bytes)`);
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return {
+    slot: data[2],
+    used: data[3] !== 0,
+    format: data[4],
+    length: v.getUint32(5, true),
+    crc32: v.getUint32(9, true),
+  };
+}
+
+/** Slot numbers in use, from INFO's mask. */
+export const usedSlots = (s: SlotsState): number[] =>
+  Array.from({ length: s.count }, (_, i) => i).filter((i) => (s.usedMask >> i) & 1);
+
+export const supportsSlots = (info: TagInfo) => info.slots !== undefined && info.slots.count > 0;
+
 /** false: the panel didn't answer at boot (wiring). undefined: firmware can't tell. */
 export function panelAnswering(info: TagInfo): boolean | undefined {
   const id = info.panelId;
@@ -188,8 +233,11 @@ const tempStr = (t: number | null | undefined) => (t == null ? 'unknown' : `${t}
 export function describeCommand(data: Uint8Array): string {
   const name = COMMAND_NAMES[data[0]] ?? `0x${data[0]?.toString(16)}`;
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (data[0] === Cmd.BEGIN && data.length >= 8)
+    return `${name} format ${data[1]}, ${v.getUint32(2, true)} bytes, slot ${data[6]}${data[7] & BEGIN_SHOW ? '' : ' (store only)'}`;
   if (data[0] === Cmd.BEGIN && data.length >= 6)
     return `${name} format ${data[1]}, ${v.getUint32(2, true)} bytes`;
+  if (data[0] === Cmd.SHOW && data.length >= 2) return `${name} slot ${data[1]}`;
   if (data[0] === Cmd.END && data.length >= 5)
     return `${name} crc32 ${v.getUint32(1, true).toString(16).padStart(8, '0')}`;
   if (data[0] === Cmd.CLEAR && data.length >= 2) return `${name} ${data[1]}`;
@@ -212,6 +260,10 @@ export function describeEvent(data: Uint8Array): string {
   if (data[0] === Evt.ERROR) {
     const cmd = data.length > 2 ? (COMMAND_NAMES[data[2]] ?? data[2]) : '?';
     return `${name} ${ERROR_NAMES[data[1]] ?? data[1]} (command ${cmd})`;
+  }
+  if (data[0] === Evt.SLOT && data.length >= 13) {
+    const s = parseSlot(data);
+    return s.used ? `${name} ${s.slot}: ${s.length} bytes, crc32 ${s.crc32.toString(16).padStart(8, '0')}` : `${name} ${s.slot}: empty`;
   }
   if (data[0] === Evt.DISPLAYED && data.length >= 3) {
     const t = i8(data[2]);

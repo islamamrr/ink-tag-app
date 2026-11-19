@@ -128,6 +128,7 @@ plain TypeScript and tested against simulated badges.
 | Remembers it and reconnects at launch | `model/badges.ts` (saved in `badges.json`), `InkTag.reconnect()` |
 | Lock to my phone | `InkTag.addBadge({ lock })`, `setLocked()`, `forget()`; `TagClient.lock/authenticate/unlock`; firmware 0.4 |
 | Badge firmware updates, on their own when the badge is idle | `assets/firmware` (from `node tools/bundle_firmware.mjs`), `model/firmware.ts`, `InkTag.updateFirmware()`, `TagClient.updateFirmware()`; firmware 0.6 |
+| Seven pictures kept on the badge: a send goes to an empty slot (else the one used longest ago, never the one on screen), and a picture already kept is only redrawn, with no upload. My badge shows the slots (show one, remove one); a Gallery item can be kept without showing it. Live pictures replace the one on screen | `InkTag.send()` (`slot`, `draw`), `syncSlots()`, `showSlot()`, `deleteSlot()`, `ui/slots.tsx`, `test/slots.test.ts`; firmware 0.6 |
 | Several badges per phone, each with its name, use and how it hangs | `BadgeRegistry`; `rename()`, `setUse()`, `setOrientation()` |
 | Demo mode | `InkTag.addDemoBadge()`: a FakeTag behind the same service |
 | Photo to badge: crop, zoom, brightness, contrast, colour boost | `PhotoLayer` (`crop`, `zoom`, `tone`); `design/styles.ts` `toneFor()` |
