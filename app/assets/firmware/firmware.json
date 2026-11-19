@@ -1,0 +1,18 @@
+{
+  "images": [
+    {
+      "chip": 5,
+      "file": "inktag-esp32c3-update.bin",
+      "version": "0.6.1",
+      "size": 596496,
+      "sha256": "42a2a498bab63c12a36dd1c72ca80ff848c9e944cb1a09af62a7c39b20be82d7"
+    },
+    {
+      "chip": 13,
+      "file": "inktag-esp32c6-update.bin",
+      "version": "0.6.1",
+      "size": 661040,
+      "sha256": "8a1a72a5bf02323d1c15e340b35004bef5e33ceb498b8858a6d0b2703d5c0716"
+    }
+  ]
+}

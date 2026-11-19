@@ -16,23 +16,35 @@ import { SCREEN_PALETTE } from '../imaging/palette';
 import { convertFitted, type Converted } from '../imaging/pipeline';
 import type { RgbaImage } from '../imaging/rgba';
 import { type DisplayOutcome, type Log, TagClient } from '../protocol/client';
-import { supportsLock, type TagInfo } from '../protocol/codec';
+import { compareVersions } from '../firmware/image';
+import { supportsLock, supportsUpdate, type TagInfo } from '../protocol/codec';
 import { Color, type ColorName, PROTOCOL_VERSION } from '../protocol/constants';
 import {
   BluetoothError,
+  CancelledError,
   DisconnectedError,
   LockedError,
   TagError,
   TimeoutError,
   UnsupportedProtocolError,
   UploadError,
+  userMessage,
 } from '../protocol/errors';
 import { FakeTag, type Timing } from '../sim/fakeTag';
 import { SimLink } from '../sim/simLink';
 import type { FoundBadge } from '../transport/scan';
+import { sleep } from '../util/async';
 import { fromHex, toHex } from '../util/sha256';
 import { BadgeRegistry, type SavedBadge } from './badges';
 import { Library, type ItemKind, type LibraryItem, PREVIEW_VERSION } from './library';
+import {
+  type FirmwareJob,
+  type FirmwareOffer,
+  type FirmwareResult,
+  type FirmwareSource,
+  firmwareFor,
+  loadFirmware,
+} from './firmware';
 import { DEFAULT_TIMINGS, ProgressTracker, type SendProgress, type Timings } from './progress';
 import { proximity, type ProximityInfo } from './proximity';
 import { checkScreen, type ScreenCheck } from './screenCheck';
@@ -74,6 +86,12 @@ export interface InkTagDeps {
   log?: Log;
   /** Demo badges' speed. 'fast' by default; 'instant' in tests. */
   demoTiming?: Timing;
+  /** The badge firmware the app carries. Without it, badges are never updated. */
+  firmware?: FirmwareSource;
+  /** Install newer firmware on its own when a badge is connected and idle. On by default. */
+  autoUpdate?: boolean;
+  /** Waits around a badge restart, ms. Shorter in tests. */
+  restartTimeouts?: { drop: number; reconnect: number; retry: number };
 }
 
 // ------------------------------------------------------------------ public types
@@ -150,6 +168,14 @@ export class InkTag {
   private readonly demoTags = new Map<string, FakeTag>();
   private listeners = new Set<() => void>();
   private connecting: Promise<unknown> | null = null;
+  /** Sends not finished yet (stored and refreshed): no automatic update meanwhile. */
+  private sendsInFlight = 0;
+  private fwJob: FirmwareJob | null = null;
+  private fwRun: Promise<FirmwareResult> | null = null;
+  private fwCtl: AbortController | null = null;
+  private readonly fwResults = new Map<string, FirmwareResult>();
+  /** Automatic tries per badge and version this session, so a failing update doesn't loop. */
+  private readonly fwTries = new Map<string, number>();
 
   constructor(private readonly deps: InkTagDeps) {
     this.badges = new BadgeRegistry(deps.storage);
@@ -334,6 +360,7 @@ export class InkTag {
       await this.badges.update(badge.id, patch);
       await this.badges.setCurrent(badge.id);
       this.setConn({ badgeId: badge.id, status: 'connected', info });
+      this.scheduleAutoUpdate(badge.id);
       return info;
     } catch (e) {
       await this.dropConnection();
@@ -434,6 +461,7 @@ export class InkTag {
   }
 
   private async client(badgeId: string): Promise<TagClient> {
+    await this.yieldFirmware();
     await this.connect(badgeId);
     return this.conn!.client;
   }
@@ -500,6 +528,14 @@ export class InkTag {
       },
     });
     tracker.enter('preparing');
+    this.sendsInFlight++;
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      this.sendsInFlight--;
+      if (this.sendsInFlight === 0) this.scheduleAutoUpdate(badgeId);
+    };
     try {
       // 1. The frame: from the library, or drawn now and added to it.
       let item: LibraryItem;
@@ -558,8 +594,10 @@ export class InkTag {
             .catch(() => {});
         return outcome;
       });
+      void displayed.finally(settle);
       return { item, displayed };
     } catch (e) {
+      settle();
       tracker.enter('failed');
       if (e instanceof UploadError && e.badgeBlank)
         await this.badges.update(badgeId, { shownItemId: undefined, shownAt: undefined }).catch(() => {});
@@ -659,6 +697,146 @@ export class InkTag {
     if (s.status === 'unknown' && prev && prev.status !== 'not-answering') s = { ...prev, checkedAt: this.now() };
     await this.badges.update(badgeId, { screen: s });
     return s;
+  }
+
+  // ------------------------------------------------------------ firmware
+
+  /** The firmware update running now, if any. */
+  firmwareJob(): FirmwareJob | null {
+    return this.fwJob;
+  }
+
+  /** How the last firmware update on this badge ended (this session). */
+  firmwareResult(badgeId: string): FirmwareResult | undefined {
+    return this.fwResults.get(badgeId);
+  }
+
+  /** The app's firmware for a connected badge, newer or not; null if it can't update over Bluetooth. */
+  firmwareOffer(badgeId: string): FirmwareOffer | null {
+    const src = this.deps.firmware;
+    if (!src || this.conn?.badgeId !== badgeId) return null;
+    return firmwareFor(src.images, this.conn.info);
+  }
+
+  /**
+   * Installs the app's firmware on the badge (also when it already runs that
+   * version: a reinstall). The badge restarts, the app connects again and
+   * reads what it runs now. Never rejects: the result says how it went.
+   */
+  updateFirmware(badgeId: string, opts: { auto?: boolean } = {}): Promise<FirmwareResult> {
+    if (this.fwRun) return this.fwRun;
+    const run = this.runFirmwareUpdate(badgeId, !!opts.auto).finally(() => {
+      this.fwRun = null;
+      this.fwJob = null;
+      this.fwCtl = null;
+      this.emit();
+    });
+    this.fwRun = run;
+    return run;
+  }
+
+  private async runFirmwareUpdate(badgeId: string, auto: boolean): Promise<FirmwareResult> {
+    const ctl = new AbortController();
+    this.fwCtl = ctl;
+    let from = this.badges.get(badgeId)?.firmware ?? '?';
+    let to = '?';
+    this.fwJob = { badgeId, from, to, stage: 'preparing', sent: 0, total: 0, auto };
+    this.emit();
+    const job = (patch: Partial<FirmwareJob>) => {
+      if (this.fwJob) this.fwJob = { ...this.fwJob, ...patch };
+      this.emit();
+    };
+    const finish = async (r: FirmwareResult) => {
+      this.fwResults.set(badgeId, r);
+      if (r.status === 'rolled-back') await this.badges.update(badgeId, { skipFirmware: r.to }).catch(() => {});
+      if (r.status === 'updated') await this.badges.update(badgeId, { skipFirmware: undefined }).catch(() => {});
+      this.log('info', `firmware update ${r.status}: ${r.from} -> ${r.to}`);
+      return r;
+    };
+    try {
+      const src = this.deps.firmware;
+      if (!src) throw new Error('This app has no badge firmware in it.');
+      await this.connect(badgeId);
+      const conn = this.conn!;
+      const offer = firmwareFor(src.images, conn.info);
+      if (!offer)
+        throw new Error(
+          supportsUpdate(conn.info)
+            ? "The app has no firmware for this badge's chip."
+            : 'This badge needs firmware 0.6 or newer (installed over USB) before it can update itself.',
+        );
+      from = offer.from;
+      to = offer.to;
+      job({ from, to });
+      const image = await loadFirmware(src, offer.image);
+      if (image.bytes.length > conn.info.update!.maxFirmware) throw new Error('This firmware is too big for the badge.');
+      if (ctl.signal.aborted) throw new CancelledError();
+      const { client } = conn;
+      await client.updateFirmware(image.bytes, {
+        signal: ctl.signal,
+        onStage: (stage) => job({ stage }),
+        onProgress: (sent, total) => job({ sent, total }),
+      });
+      // The badge restarts into the new firmware: wait for the link to drop, then connect again.
+      job({ stage: 'reconnecting' });
+      const t = this.deps.restartTimeouts ?? { drop: 20_000, reconnect: 60_000, retry: 2_000 };
+      const dropBy = this.now() + t.drop;
+      while (client.connected && this.now() < dropBy) await sleep(100);
+      if (client.connected) await this.dropConnection();
+      const info = await this.reconnectAfterRestart(badgeId, t.reconnect, t.retry);
+      if (info.update?.rolledBack) return await finish({ status: 'rolled-back', from, to, at: this.now() });
+      if (compareVersions(info.firmwareVersion, image.version) === 0)
+        return await finish({ status: 'updated', from, to, at: this.now() });
+      return await finish({ status: 'failed', from, to, at: this.now(), message: `The badge still runs ${info.firmware}.` });
+    } catch (e) {
+      if (e instanceof CancelledError)
+        return finish({ status: 'cancelled', from, to, at: this.now(), message: 'Paused so a picture could go first.' });
+      return finish({ status: 'failed', from, to, at: this.now(), message: userMessage(e) });
+    }
+  }
+
+  private async reconnectAfterRestart(badgeId: string, timeoutMs: number, retryMs: number): Promise<TagInfo> {
+    const deadline = this.now() + timeoutMs;
+    for (;;) {
+      try {
+        return await this.connect(badgeId);
+      } catch (e) {
+        if (e instanceof LockedError || this.now() + retryMs > deadline) throw e;
+        await sleep(retryMs);
+      }
+    }
+  }
+
+  /**
+   * Something else needs the badge. An update still streaming stops (the
+   * badge drops the half-written copy, and it starts over later); one that is
+   * already installing finishes first, since the badge restarts anyway.
+   */
+  private async yieldFirmware() {
+    const run = this.fwRun;
+    if (!run) return;
+    const stage = this.fwJob?.stage;
+    if (stage === 'preparing' || stage === 'erasing' || stage === 'sending') this.fwCtl?.abort();
+    await run;
+  }
+
+  private scheduleAutoUpdate(badgeId: string) {
+    if (!this.deps.firmware || this.deps.autoUpdate === false) return;
+    setTimeout(() => void this.autoUpdate(badgeId), this.deps.demoTiming === 'instant' ? 0 : 1_500);
+  }
+
+  /** Installs newer firmware when the badge is connected and nothing else is going on. */
+  private async autoUpdate(badgeId: string) {
+    if (this.fwRun || this.sendsInFlight > 0 || this.connecting) return;
+    const badge = this.badges.get(badgeId);
+    if (!badge || badge.kind !== 'ble' || !(this.conn?.badgeId === badgeId && this.conn.client.connected)) return;
+    const offer = this.firmwareOffer(badgeId);
+    if (!offer?.newer || badge.skipFirmware === offer.to) return;
+    const key = `${badgeId}@${offer.to}`;
+    const tries = this.fwTries.get(key) ?? 0;
+    if (tries >= 3) return;
+    this.fwTries.set(key, tries + 1);
+    await this.updateFirmware(badgeId, { auto: true });
   }
 
   /** Demo badges only: the simulated badge, for showing its screen in demo mode. */

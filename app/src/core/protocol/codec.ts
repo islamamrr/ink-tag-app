@@ -2,6 +2,8 @@
 // All multi-byte fields are little endian.
 
 import {
+  Chip,
+  CHIP_NAMES,
   Cmd,
   COMMAND_NAMES,
   ERROR_NAMES,
@@ -12,6 +14,8 @@ import {
   TEMP_MAX,
   TEMP_MIN,
   TEMP_UNKNOWN,
+  UPDATE_ROLLED_BACK,
+  UPDATE_RUNNING_SLOT1,
 } from './constants';
 
 export const encodeBegin = (length: number, format: number = FMT_NATIVE_4BPP): Uint8Array => {
@@ -54,6 +58,17 @@ export const encodeAuthRequest = () => Uint8Array.of(Cmd.AUTH);
 export const encodeAuthAnswer = (answer: Uint8Array) => withKey(Cmd.AUTH, answer);
 export const encodeUnlock = () => Uint8Array.of(Cmd.UNLOCK);
 
+const withU32 = (op: number, value: number) => {
+  const b = new Uint8Array(5);
+  b[0] = op;
+  new DataView(b.buffer).setUint32(1, value >>> 0, true);
+  return b;
+};
+export const encodeUpdateBegin = (size: number) => withU32(Cmd.UPDATE_BEGIN, size);
+export const encodeUpdateEnd = (crc32: number) => withU32(Cmd.UPDATE_END, crc32);
+export const encodeDelete = (slot: number) => Uint8Array.of(Cmd.DELETE, slot & 0xff);
+export const encodeSlot = (slot: number) => Uint8Array.of(Cmd.SLOT, slot & 0xff);
+
 const i8 = (b: number) => (b << 24) >> 24;
 
 export interface TagInfo {
@@ -76,6 +91,29 @@ export interface TagInfo {
   panelId?: Uint8Array;
   /** undefined: firmware older than 0.4, which has no lock. */
   lock?: LockState;
+  /** undefined: firmware older than 0.6, which keeps one picture. */
+  slots?: SlotsState;
+  /** undefined: firmware older than 0.6, which can't update over Bluetooth. */
+  update?: UpdateState;
+}
+
+export interface SlotsState {
+  count: number;
+  /** Bit n set: slot n holds a picture. */
+  usedMask: number;
+  /** The slot on the panel, or null. */
+  current: number | null;
+}
+
+export interface UpdateState {
+  /** Which of the two app slots the firmware runs from (it alternates with each update). */
+  runningSlot: 0 | 1;
+  /** An update failed to start, and the badge went back to the firmware before it. */
+  rolledBack: boolean;
+  /** Largest firmware image the badge accepts, bytes. */
+  maxFirmware: number;
+  /** Chip id (Chip.*). Firmware 0.6.0 doesn't say; every 0.6.0 badge is an ESP32-C3. */
+  chip: number;
 }
 
 export interface LockState {
@@ -116,6 +154,16 @@ export function parseInfo(data: Uint8Array): TagInfo {
     const f = data[21];
     info.lock = { locked: (f & 1) !== 0, authorized: (f & 2) !== 0 || (f & 1) === 0 };
   }
+  // fw 0.6: slots (22..24), update flags (25), largest firmware (26..29); 0.6.1: chip (30).
+  if (data.length >= 30) {
+    info.slots = { count: data[22], usedMask: data[23], current: data[24] === 0xff ? null : data[24] };
+    info.update = {
+      runningSlot: data[25] & UPDATE_RUNNING_SLOT1 ? 1 : 0,
+      rolledBack: (data[25] & UPDATE_ROLLED_BACK) !== 0,
+      maxFirmware: v.getUint32(26, true),
+      chip: data.length >= 31 ? data[30] : Chip.ESP32C3,
+    };
+  }
   return info;
 }
 
@@ -129,6 +177,7 @@ export function panelAnswering(info: TagInfo): boolean | undefined {
 
 export const supportsTemp = (info: TagInfo) => info.tempOverride !== undefined;
 export const supportsLock = (info: TagInfo) => info.lock !== undefined;
+export const supportsUpdate = (info: TagInfo) => info.update !== undefined;
 
 // ---------------------------------------------------------------- logging
 
@@ -144,6 +193,10 @@ export function describeCommand(data: Uint8Array): string {
   if (data[0] === Cmd.END && data.length >= 5)
     return `${name} crc32 ${v.getUint32(1, true).toString(16).padStart(8, '0')}`;
   if (data[0] === Cmd.CLEAR && data.length >= 2) return `${name} ${data[1]}`;
+  if (data[0] === Cmd.UPDATE_BEGIN && data.length >= 5) return `${name} ${v.getUint32(1, true)} bytes`;
+  if (data[0] === Cmd.UPDATE_END && data.length >= 5)
+    return `${name} crc32 ${v.getUint32(1, true).toString(16).padStart(8, '0')}`;
+  if ((data[0] === Cmd.DELETE || data[0] === Cmd.SLOT) && data.length >= 2) return `${name} ${data[1]}`;
   // Never log key material.
   if ((data[0] === Cmd.LOCK || data[0] === Cmd.AUTH) && data.length > 1) return `${name} (16 bytes)`;
   if (data[0] === Cmd.TEMP && data.length >= 2) {
@@ -181,6 +234,8 @@ export function describeEvent(data: Uint8Array): string {
       s += i.lock.locked
         ? `, locked${i.lock.authorized ? ' (authorized)' : ''}`
         : ', unlocked';
+    if (i.update)
+      s += `, ${CHIP_NAMES[i.update.chip] ?? `chip ${i.update.chip}`} app slot ${i.update.runningSlot}${i.update.rolledBack ? ' (rolled back)' : ''}`;
     return s;
   }
   return name;

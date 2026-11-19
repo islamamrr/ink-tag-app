@@ -361,9 +361,32 @@ const uint8_t *epd_panel_id(void)
     return s_panel_id;
 }
 
+// Boards with a panel supply switch (B2: GPIO23, P-FET, on when low). The
+// panel stays powered for now; switching it off between refreshes comes with
+// the deep sleep work, and needs the panel lines driven low first.
+static esp_err_t panel_power_on(void)
+{
+#if CONFIG_INKTAG_PIN_EPD_PWR >= 0
+#if CONFIG_INKTAG_EPD_PWR_ACTIVE_LOW
+    const int on = 0;
+#else
+    const int on = 1;
+#endif
+    gpio_config_t pwr = {
+        .pin_bit_mask = 1ULL << CONFIG_INKTAG_PIN_EPD_PWR,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    ESP_RETURN_ON_ERROR(gpio_set_level(CONFIG_INKTAG_PIN_EPD_PWR, on), TAG, "pwr level");
+    ESP_RETURN_ON_ERROR(gpio_config(&pwr), TAG, "pwr gpio");
+    vTaskDelay(pdMS_TO_TICKS(10));  // let the supply settle before reset
+#endif
+    return ESP_OK;
+}
+
 esp_err_t epd_init(void)
 {
     memset(s_panel_id, 0xFF, sizeof(s_panel_id));
+    ESP_RETURN_ON_ERROR(panel_power_on(), TAG, "panel power");
     gpio_config_t out = {
         .pin_bit_mask = (1ULL << PIN_DC) | (1ULL << PIN_RST) | (1ULL << PIN_CS),
         .mode = GPIO_MODE_OUTPUT,

@@ -34,6 +34,8 @@ export interface SavedBadge {
   shownAt?: number;
   /** Last screen check result. */
   screen?: ScreenCheck;
+  /** A firmware version that failed to start on this badge: not installed again on its own. */
+  skipFirmware?: string;
 }
 
 interface BadgesDoc {
