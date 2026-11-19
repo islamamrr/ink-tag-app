@@ -78,8 +78,8 @@ EVT_LUT = 0x89
 WINDOW_STRIPES = 0x10             # fill the box with six color stripes
 WINDOW_CODE_NORMAL, WINDOW_CODE_SKIP = 0x00, 0xFF
 WINDOW_BOX_DATA = 0x01            # flags: send only the box's pixels
-WINDOW_CUSTOM_LUT = 0x02          # flags (fw 0.7+): load the probe registers first
-WINDOW_DRF = 0x08                 # flags (fw 0.7+): PON + DRF + POF instead of AUTO
+WINDOW_CUSTOM_LUT = 0x02          # flags (lab build): load the probe registers first
+WINDOW_DRF = 0x08                 # flags (lab build): PON + DRF + POF instead of AUTO
 
 
 def window_command(x, y, w, h, fill, code1=WINDOW_CODE_NORMAL, code2=WINDOW_CODE_NORMAL, box_data=True,
@@ -90,7 +90,7 @@ def window_command(x, y, w, h, fill, code1=WINDOW_CODE_NORMAL, code2=WINDOW_CODE
                        (WINDOW_BOX_DATA if box_data else 0) | extra_flags)
 
 
-# ------------------------------------------------------------ custom-waveform probe (fw 0.7+)
+# ------------------------------------------------------------ custom-waveform probe (lab build)
 #
 # The LUT layout is the one the B/W UC8279 uses (FreeInk's recovered Xteink X3
 # tables): each register holds 7-byte groups [01, p0, p1, p2, p3, 01, 01], and
@@ -512,7 +512,7 @@ def main():
                    help="send the whole frame and narrow the window only for the refresh")
     ble_args(p)
 
-    p = sub.add_parser("stop", help="experimental: stop a box refresh early (firmware 0.7+)",
+    p = sub.add_parser("stop", help="experimental: stop a box refresh early (lab build)",
                        description="Starts pass 1 of a box refresh, stops it after --ms, then runs "
                                    "the short pass 2 (unless --no-pass2). See docs/EARLYSTOP.md.")
     for n in ("x", "y", "w", "h"):
@@ -523,7 +523,7 @@ def main():
     p.add_argument("--no-pass2", action="store_true", help="leave the box as the cut-short pass left it")
     ble_args(p)
 
-    p = sub.add_parser("probe", help="experimental: custom waveform on a tiny box (firmware 0.7+)",
+    p = sub.add_parser("probe", help="experimental: custom waveform on a tiny box (lab build)",
                        description="Loads a hand-made waveform into the controller's LUT registers "
                                    "and runs it on one small box. See PROBE.md before using it.")
     p.add_argument("kind", choices=["zero", "pulse", "push", "ledger"],

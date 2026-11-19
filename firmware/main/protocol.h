@@ -6,8 +6,8 @@
 
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
-#define INKTAG_FW_VERSION_MINOR 7
-#define INKTAG_FW_VERSION_PATCH 0
+#define INKTAG_FW_VERSION_MINOR 6
+#define INKTAG_FW_VERSION_PATCH 1
 
 // 128-bit UUIDs, written here in the usual string order:
 //   service  b5a10000-6e6b-4a7a-9c3e-1f2a3b4c5d6e
@@ -48,12 +48,12 @@ enum {
     INKTAG_CMD_SLOT   = 0x0D,        // u8 slot: notifies SLOT. (fw 0.6+)
     INKTAG_CMD_UPDATE_BEGIN = 0x0E,  // u32 firmware size: erases the update slot, then notifies READY. (fw 0.6+)
     INKTAG_CMD_UPDATE_END   = 0x0F,  // u32 crc32 (zlib): checks and installs, notifies UPDATED, restarts. (fw 0.6+)
-    // Experimental custom-waveform probe (fw 0.7+): u8 register, then its data
+    // Experimental custom-waveform probe (lab build): u8 register, then its data
     // bytes. 0x20-0x2F LUT (1-64 bytes), 0x00 PSR override (1-2), 0x50 CDI
     // override (1); 0xFF with no data clears them all. Kept in RAM and used by
     // WINDOW with flags bit 1 (custom LUT). Notifies LUT.
     INKTAG_CMD_LUT = 0x10,
-    // Experimental early-stop test (fw 0.7+): u16 x, u16 y, u16 w, u16 h
+    // Experimental early-stop test (lab build): u16 x, u16 y, u16 w, u16 h
     // (x, w multiples of 8, at most 200x200), u8 fill, u16 stop_ms (100..30000),
     // u8 method (0 power off, 1 hardware reset), u8 flags (bit 0: then run
     // pass 2). Starts pass 1 of a box refresh, stops it, notifies STOP.
@@ -74,8 +74,8 @@ enum {
                                  // u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (fw 0.5+)
     INKTAG_EVT_UPDATED   = 0x87, // firmware installed; the badge restarts into it about 0.5 s later (fw 0.6+)
     INKTAG_EVT_SLOT      = 0x88, // payload: u8 slot, u8 used, u8 format, u32 length, u32 crc32 (fw 0.6+)
-    INKTAG_EVT_LUT       = 0x89, // LUT stored; payload: u8 register, u8 registers now held (fw 0.7+)
-    INKTAG_EVT_STOP      = 0x8A, // early-stop test done; payload: u32 ms until the stop, u32 pass 2 ms (0 = not run), u8 1 if the refresh had already ended (fw 0.7+)
+    INKTAG_EVT_LUT       = 0x89, // LUT stored; payload: u8 register, u8 registers now held (lab build)
+    INKTAG_EVT_STOP      = 0x8A, // early-stop test done; payload: u32 ms until the stop, u32 pass 2 ms (0 = not run), u8 1 if the refresh had already ended (lab build)
     INKTAG_EVT_ERROR     = 0x8F, // status holds the error; payload: u8 command that failed
 };
 

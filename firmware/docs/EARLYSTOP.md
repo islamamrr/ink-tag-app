@@ -1,4 +1,4 @@
-# Early-stop test (firmware 0.7, experimental)
+# Early-stop test (lab build, experimental)
 
 Question: the panel shows changes from the first second of a refresh. If we cut the refresh short, is what's left good enough for a to-do tick, and what does it cost?
 

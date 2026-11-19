@@ -1,4 +1,6 @@
-# Custom-waveform probe (firmware 0.7, experimental)
+# Custom-waveform probe (lab build, experimental)
+
+The lab build is firmware 0.6.1 plus these experiments. It isn't bundled into the app, so it never reaches badges by wireless update.
 
 The panel's own waveforms take about 18 s per box (measured 11 Nov: 18.3 s + 1.3 s at 22 °C), and Topwin says there is no fast or black/white mode. The only way to something faster is our own waveform, loaded into the controller's LUT registers. Nobody has documented those registers for the UC8279E, so this probe finds out step by step, on one small box.
 
@@ -13,7 +15,7 @@ The worst realistic outcome is a stained 32 × 32 square in one corner. Use a sp
 
 ## Before you start
 
-1. Flash firmware 0.7.0 and check `python inktag.py info` says 0.7.0.
+1. Flash the lab build (it reports itself as 0.6.1; a quick check is `python inktag.py probe zero`, which is refused as "bad command" on a plain 0.6.1).
 2. `python inktag.py clear white` so the probe box starts white.
 3. The default box is 32 × 32 at x 752, y 488 in the native frame (a corner, away from the middle seam). Find it once with `python inktag.py window 752 488 32 32 black` and note where it lands, then `clear white` again.
 
