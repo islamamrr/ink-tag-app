@@ -13,18 +13,23 @@ import {
   encodeAuthRequest,
   encodeBegin,
   encodeClear,
+  encodeDelete,
   encodeEnd,
   encodeInfo,
   encodeLock,
   encodeShow,
+  encodeSlot,
   encodeTemp,
   encodeUnlock,
   encodeUpdateBegin,
   encodeUpdateEnd,
   parseInfo,
+  parseSlot,
+  type SlotInfo,
   type TagInfo,
 } from './codec';
 import {
+  BEGIN_SHOW,
   ErrorCode,
   Evt,
   EVENT_NAMES,
@@ -77,6 +82,10 @@ export interface UploadOptions {
   ackEvery?: number;
   /** Write with response on every chunk. Used automatically to retry a CRC mismatch. */
   safe?: boolean;
+  /** Firmware 0.6+: the picture slot to store it in. Absent: it replaces the current picture. */
+  slot?: number;
+  /** With a slot: draw it once stored (default), or only store it. */
+  draw?: boolean;
 }
 
 /** Where a firmware update is. After 'restarting' the badge drops the connection. */
@@ -91,6 +100,8 @@ export interface FirmwareUpdateOptions {
 
 export type DisplayOutcome =
   | { status: 'displayed'; temperature: number | null }
+  /** Stored in a slot without drawing (fw 0.6+): nothing changed on the screen. */
+  | { status: 'stored' }
   | { status: 'failed'; error: TagError }
   | { status: 'unknown'; reason: 'timeout' | 'disconnected' };
 
@@ -216,6 +227,7 @@ export class TagClient {
     const r = await this.waitDisplayed();
     if (r.status === 'displayed') return r.temperature;
     if (r.status === 'failed') throw r.error;
+    if (r.status === 'stored') return null; // never from waitDisplayed
     throw r.reason === 'disconnected'
       ? new DisconnectedError()
       : new TimeoutError('DISPLAYED', this.timeouts.displayed);
@@ -237,11 +249,32 @@ export class TagClient {
     return info;
   }
 
-  /** Redraws the stored image. Resolves with the panel temperature. */
-  show(): Promise<number | null> {
+  /**
+   * Redraws the stored image, or (fw 0.6+) draws a stored slot and makes it
+   * current. Resolves with the panel temperature.
+   */
+  show(slot?: number): Promise<number | null> {
     return this.exclusive(async () => {
-      await this.send(encodeShow());
+      await this.send(encodeShow(slot));
       return this.displayedOrThrow();
+    });
+  }
+
+  // ------------------------------------------------------------ picture slots (fw 0.6+)
+
+  /** What a slot holds: whether it's used, and the length and CRC-32 of its picture. */
+  slot(slot: number): Promise<SlotInfo> {
+    return this.exclusive(async () => {
+      await this.send(encodeSlot(slot));
+      return parseSlot(await this.expect(Evt.SLOT, this.timeouts.info));
+    });
+  }
+
+  /** Empties a slot. The screen keeps what it shows. Resolves with INFO. */
+  deleteSlot(slot: number): Promise<TagInfo> {
+    return this.exclusive(async () => {
+      await this.send(encodeDelete(slot));
+      return parseInfo(await this.expect(Evt.INFO, this.timeouts.info));
     });
   }
 
@@ -351,6 +384,17 @@ export class TagClient {
           throw e;
         }
       }
+      if (opts.slot !== undefined && opts.draw === false) {
+        // Stored only: the badge answers SLOT instead of drawing.
+        try {
+          await this.expect(Evt.SLOT, this.timeouts.info);
+        } catch (e) {
+          if (!(e instanceof TimeoutError)) throw e;
+          this.log('info', 'no SLOT after a store-only upload; it was stored at RECEIVED');
+        }
+        release();
+        return { ...stats, attempts, displayed: Promise.resolve({ status: 'stored' as const }) };
+      }
       const displayed = this.waitDisplayed().finally(release);
       return { ...stats, attempts, displayed };
     } catch (e) {
@@ -373,7 +417,7 @@ export class TagClient {
   ) {
     const { signal, onProgress, onStage, ackEvery = 32 } = opts;
     onStage?.('erasing', attempt);
-    await this.beginWithRetry(frame.length, signal);
+    await this.beginWithRetry(frame.length, signal, opts.slot, opts.draw === false ? 0 : BEGIN_SHOW);
     onBegan();
     onStage?.('sending', attempt);
 
@@ -472,9 +516,9 @@ export class TagClient {
   }
 
   /** BEGIN; on "bad state" (a stale upload on the badge) ABORT and try once more. */
-  private async beginWithRetry(length: number, signal?: AbortSignal) {
+  private async beginWithRetry(length: number, signal?: AbortSignal, slot?: number, flags = BEGIN_SHOW) {
     for (let retried = false; ; retried = true) {
-      await this.send(encodeBegin(length, FMT_NATIVE_4BPP));
+      await this.send(encodeBegin(length, FMT_NATIVE_4BPP, slot, flags));
       try {
         await this.expect(Evt.READY, this.timeouts.ready, signal);
         return;

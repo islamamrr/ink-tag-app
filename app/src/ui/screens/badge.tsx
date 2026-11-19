@@ -9,6 +9,7 @@ import { LockedError, type NearbyBadge, type Orientation, userMessage } from '..
 import { Btn, Card, Chip, Col, Field, Group, H, Label, ListRow, Meta, Problem, Row, Screen, Sheet, T, ToggleRow, useText, Wordmark } from '../kit';
 import { useNav } from '../nav';
 import { FirmwareLine } from '../firmware';
+import { SlotsSection } from '../slots';
 import { BadgeFrame, ItemThumb, TemplateThumb } from '../pictures';
 import { Dots, Icon, InkDot, InkStrip, useReduceMotion } from '../print';
 import { ago, useServices } from '../services';
@@ -221,6 +222,8 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
         <Btn flex small icon="pulse" label="Check" busy={busy === 'check'} disabled={!!busy} onPress={() => run('check', async () => setNotice((await app.checkScreen(id)).message))} />
         <Btn flex small icon="blank" label="Blank" busy={busy === 'blank'} disabled={!!busy} onPress={() => run('blank', () => app.blank(id), 'The screen is white. The stored picture is kept; Redraw brings it back.')} />
       </Row>
+
+      <SlotsSection badgeId={id} connected={connected} />
 
       <Group>
         <ListRow label="Name" value={b.name} onPress={() => setRenaming(b.name)} />

@@ -17,7 +17,8 @@ import { convertFitted, type Converted } from '../imaging/pipeline';
 import type { RgbaImage } from '../imaging/rgba';
 import { type DisplayOutcome, type Log, TagClient } from '../protocol/client';
 import { compareVersions } from '../firmware/image';
-import { supportsLock, supportsUpdate, type TagInfo } from '../protocol/codec';
+import { supportsLock, supportsSlots, supportsUpdate, type TagInfo } from '../protocol/codec';
+import { crc32 } from '../protocol/crc32';
 import { Color, type ColorName, PROTOCOL_VERSION } from '../protocol/constants';
 import {
   BluetoothError,
@@ -35,7 +36,7 @@ import { SimLink } from '../sim/simLink';
 import type { FoundBadge } from '../transport/scan';
 import { sleep } from '../util/async';
 import { fromHex, toHex } from '../util/sha256';
-import { BadgeRegistry, type SavedBadge } from './badges';
+import { BadgeRegistry, type SavedBadge, type SlotRecord } from './badges';
 import { Library, type ItemKind, type LibraryItem, PREVIEW_VERSION } from './library';
 import {
   type FirmwareJob,
@@ -147,6 +148,25 @@ export interface SendResult {
   item: LibraryItem;
   /** Settles when the refresh ends; never rejects. */
   displayed: Promise<DisplayOutcome>;
+  /** Fw 0.6+: the picture slot it went to. */
+  slot?: number;
+  /** It was already in that slot, so nothing was uploaded: the badge only drew it. */
+  reused?: boolean;
+}
+
+/**
+ * Where a send goes on a badge with picture slots (fw 0.6+).
+ * 'auto': a slot already holding the same picture (then it is only drawn),
+ * else an empty slot, else the one used longest ago. 'replace': the slot on
+ * screen (live pictures, so they don't push the others out). A number: that slot.
+ */
+export type SlotChoice = 'auto' | 'replace' | number;
+
+export interface BadgeSlots {
+  count: number;
+  /** Index = slot number; null = empty. */
+  slots: (SlotRecord | null)[];
+  current: number | null;
 }
 
 interface Settings {
@@ -377,7 +397,7 @@ export class InkTag {
     if (badge.kind === 'demo') {
       let tag = this.demoTags.get(badge.id);
       if (!tag) {
-        tag = new FakeTag({ timing: this.deps.demoTiming ?? 'fast' });
+        tag = new FakeTag({ timing: this.deps.demoTiming ?? 'fast', firmware: [0, 6, 1] });
         this.demoTags.set(badge.id, tag);
       }
       const link = new SimLink(tag, { bytesPerSecond: this.deps.demoTiming === 'instant' ? 0 : 24 * 1024 });
@@ -511,7 +531,15 @@ export class InkTag {
   async send(
     badgeId: string,
     what: Design | { itemId: string },
-    opts: { onProgress?: (p: SendProgress) => void; signal?: AbortSignal; prepared?: Prepared } = {},
+    opts: {
+      onProgress?: (p: SendProgress) => void;
+      signal?: AbortSignal;
+      prepared?: Prepared;
+      /** Fw 0.6+: which slot. 'auto' by default. Ignored on older badges. */
+      slot?: SlotChoice;
+      /** Fw 0.6+: false stores it without drawing (the screen keeps what it shows). */
+      draw?: boolean;
+    } = {},
   ): Promise<SendResult> {
     const badge = this.badges.get(badgeId);
     if (!badge) throw new Error(`no badge ${badgeId}`);
@@ -528,6 +556,9 @@ export class InkTag {
       },
     });
     tracker.enter('preparing');
+    const draw = opts.draw ?? true;
+    let slot: number | undefined;
+    let shownBefore: number | null | undefined;
     this.sendsInFlight++;
     let settled = false;
     const settle = () => {
@@ -571,38 +602,179 @@ export class InkTag {
       tracker.enter('connecting');
       const client = await this.client(badgeId);
 
-      // 3. Upload: erase, send, verify.
+      // 3. Fw 0.6+: pick a slot. A picture the badge already holds is only drawn.
+      const crc = crc32(frame);
+      const slots = supportsSlots(this.conn!.info) ? await this.readSlots(badgeId) : null;
+      if (slots) {
+        shownBefore = slots.current;
+        const want = opts.slot ?? 'auto';
+        const have = slots.slots.findIndex((r) => r?.crc32 === crc);
+        if (have >= 0 && (typeof want !== 'number' || want === have)) {
+          slot = have;
+          await this.noteSlot(badgeId, have, { crc32: crc, itemId: item.id }, draw);
+          if (!draw) {
+            tracker.enter('done');
+            settle();
+            return { item, displayed: Promise.resolve({ status: 'stored' }), slot, reused: true };
+          }
+          tracker.enter('refreshing');
+          await this.library.recordSend(item.id, badgeId);
+          await this.badges.update(badgeId, { shownItemId: item.id, shownAt: this.now() });
+          const displayed = this.followRefresh(badgeId, tracker, settleShow(client.show(have)));
+          void displayed.finally(settle);
+          return { item, displayed, slot, reused: true };
+        }
+        slot = typeof want === 'number' ? want : want === 'replace' ? (slots.current ?? pickSlot(slots)) : pickSlot(slots);
+      }
+
+      // 4. Upload: erase, send, verify.
       const up = await client.upload(frame, {
         signal: opts.signal,
         onStage: (s, attempt) => tracker.enter(s, attempt),
         onProgress: (sent, total) => tracker.bytes(sent, total),
+        slot,
+        draw,
       });
 
-      // 4. Stored: record it, then follow the refresh.
+      // 5. Stored: record it, then follow the refresh.
+      if (slot !== undefined) await this.noteSlot(badgeId, slot, { crc32: crc, itemId: item.id }, draw);
+      if (!draw) {
+        tracker.enter('done');
+        settle();
+        return { item, displayed: up.displayed, slot };
+      }
       tracker.enter('refreshing');
       await this.library.recordSend(item.id, badgeId);
       await this.badges.update(badgeId, { shownItemId: item.id, shownAt: this.now() });
-      const displayed = up.displayed.then(async (outcome) => {
-        tracker.enter(outcome.status === 'failed' ? 'failed' : 'done');
-        if (outcome.status === 'displayed') {
-          this.settings.timings = tracker.learned();
-          await this.settingsFile.save(this.settings).catch(() => {});
-        }
-        if (this.badges.get(badgeId))
-          await this.badges
-            .update(badgeId, { screen: checkScreen(this.conn?.info ?? null, outcome, this.now()) })
-            .catch(() => {});
-        return outcome;
-      });
+      const displayed = this.followRefresh(badgeId, tracker, up.displayed);
       void displayed.finally(settle);
-      return { item, displayed };
+      return { item, displayed, slot };
     } catch (e) {
       settle();
       tracker.enter('failed');
-      if (e instanceof UploadError && e.badgeBlank)
-        await this.badges.update(badgeId, { shownItemId: undefined, shownAt: undefined }).catch(() => {});
+      if (e instanceof UploadError && e.badgeBlank) {
+        // BEGIN erased the slot. The screen only lost its picture if that slot was on it.
+        const patch: Partial<SavedBadge> = {};
+        const b = this.badges.get(badgeId);
+        if (slot !== undefined && b?.slots) {
+          const recs = [...b.slots];
+          recs[slot] = null;
+          patch.slots = recs;
+          if (b.currentSlot === slot) patch.currentSlot = null;
+        }
+        if (slot === undefined || shownBefore === slot) Object.assign(patch, { shownItemId: undefined, shownAt: undefined });
+        await this.badges.update(badgeId, patch).catch(() => {});
+      }
       throw e;
     }
+  }
+
+  /** After RECEIVED (or SHOW): records the refresh's outcome and the learned timings. */
+  private followRefresh(badgeId: string, tracker: ProgressTracker, refresh: Promise<DisplayOutcome>) {
+    return refresh.then(async (outcome) => {
+      tracker.enter(outcome.status === 'failed' ? 'failed' : 'done');
+      if (outcome.status === 'displayed') {
+        this.settings.timings = tracker.learned();
+        await this.settingsFile.save(this.settings).catch(() => {});
+      }
+      if (this.badges.get(badgeId))
+        await this.badges
+          .update(badgeId, { screen: checkScreen(this.conn?.info ?? null, outcome, this.now()) })
+          .catch(() => {});
+      return outcome;
+    });
+  }
+
+  // ------------------------------------------------------------ picture slots (fw 0.6+)
+
+  /**
+   * The badge's picture slots as last read (from this connection or an
+   * earlier one). null: the badge keeps one picture (firmware before 0.6),
+   * or this phone hasn't connected to it since it got 0.6.
+   */
+  slots(badgeId: string): BadgeSlots | null {
+    const b = this.badges.get(badgeId);
+    if (!b?.slots) return null;
+    return { count: b.slots.length, slots: b.slots, current: b.currentSlot ?? null };
+  }
+
+  /** Reads every slot from the badge and matches it to the library. null on firmware before 0.6. */
+  async syncSlots(badgeId: string): Promise<BadgeSlots | null> {
+    await this.client(badgeId);
+    if (!supportsSlots(this.conn!.info)) return null;
+    return this.readSlots(badgeId);
+  }
+
+  /** INFO, then SLOT for each used slot. Needs the connection to badgeId. */
+  private async readSlots(badgeId: string): Promise<BadgeSlots> {
+    const conn = this.conn!;
+    const info = (conn.info = await conn.client.info());
+    const st = info.slots!;
+    const prev = this.badges.get(badgeId)?.slots ?? [];
+    const recs: (SlotRecord | null)[] = [];
+    for (let i = 0; i < st.count; i++) {
+      if (!((st.usedMask >> i) & 1)) {
+        recs.push(null);
+        continue;
+      }
+      const s = await conn.client.slot(i);
+      if (!s.used) {
+        recs.push(null);
+        continue;
+      }
+      const old = prev[i];
+      const same = old?.crc32 === s.crc32;
+      const item = (same && old?.itemId && this.library.get(old.itemId)) || this.library.byCrc(s.crc32);
+      recs.push({ crc32: s.crc32, itemId: item ? item.id : undefined, usedAt: same ? old!.usedAt : 0 });
+    }
+    const current = st.current !== null && recs[st.current] ? st.current : null;
+    const patch: Partial<SavedBadge> = { slots: recs, currentSlot: current };
+    // What the screen shows, when the badge's current slot is a picture this phone knows.
+    const shown = current !== null ? recs[current]?.itemId : undefined;
+    if (shown) patch.shownItemId = shown;
+    await this.badges.update(badgeId, patch);
+    return { count: st.count, slots: recs, current };
+  }
+
+  /** Records what a slot now holds; `drawn`: it is also on screen now. */
+  private async noteSlot(badgeId: string, slot: number, rec: Omit<SlotRecord, 'usedAt'>, drawn: boolean) {
+    const b = this.badges.get(badgeId);
+    if (!b) return;
+    const recs = [...(b.slots ?? [])];
+    while (recs.length <= slot) recs.push(null);
+    recs[slot] = { ...rec, crc32: rec.crc32 >>> 0, usedAt: this.now() };
+    await this.badges.update(badgeId, { slots: recs, ...(drawn ? { currentSlot: slot } : {}) });
+  }
+
+  /** Draws a stored slot. Takes as long as any refresh, but nothing is uploaded. */
+  async showSlot(badgeId: string, slot: number): Promise<DisplayOutcome> {
+    const client = await this.client(badgeId);
+    const outcome = await settleShow(client.show(slot));
+    const b = this.badges.get(badgeId);
+    const rec = b?.slots?.[slot];
+    const patch: Partial<SavedBadge> = { screen: checkScreen(this.conn?.info ?? null, outcome, this.now()) };
+    if (outcome.status !== 'failed') {
+      Object.assign(patch, { shownItemId: rec?.itemId, shownAt: this.now(), currentSlot: slot });
+      if (b?.slots && rec) {
+        const recs = [...b.slots];
+        recs[slot] = { ...rec, usedAt: this.now() };
+        patch.slots = recs;
+      }
+    }
+    await this.badges.update(badgeId, patch);
+    if (outcome.status === 'failed') throw outcome.error;
+    return outcome;
+  }
+
+  /** Empties a slot. If it's on screen, the screen keeps showing it until the next picture. */
+  async deleteSlot(badgeId: string, slot: number): Promise<BadgeSlots | null> {
+    const client = await this.client(badgeId);
+    const info = (this.conn!.info = await client.deleteSlot(slot));
+    const b = this.badges.get(badgeId);
+    const recs = [...(b?.slots ?? [])];
+    if (slot < recs.length) recs[slot] = null;
+    await this.badges.update(badgeId, { slots: recs, currentSlot: info.slots?.current ?? null });
+    return this.slots(badgeId);
   }
 
   /** Redraws the stored picture. */
@@ -844,6 +1016,19 @@ export class InkTag {
     return this.demoTags.get(badgeId);
   }
 }
+
+/** The slot to store a new picture in: an empty one, else the one used longest ago (not the one on screen). */
+export function pickSlot(s: Pick<BadgeSlots, 'slots' | 'current'>): number {
+  const empty = s.slots.findIndex((r) => r === null);
+  if (empty >= 0) return empty;
+  let best = -1;
+  s.slots.forEach((r, i) => {
+    if (i !== s.current && (best < 0 || r!.usedAt < s.slots[best]!.usedAt)) best = i;
+  });
+  return best >= 0 ? best : 0;
+}
+
+const settleShow = (p: Promise<number | null>) => settle(p);
 
 async function settle(p: Promise<number | null>): Promise<DisplayOutcome> {
   try {
