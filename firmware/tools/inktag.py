@@ -19,10 +19,16 @@ the app's image pipeline and BLE protocol (docs/PROTOCOL.md).
     python inktag.py temp 35                   # pretend the panel is 35 C ("off" = read it again)
     python inktag.py window 304 200 184 128 black            # redraw one box only
     python inktag.py window 304 200 184 128 white --code1 skip --code2 90
+    python inktag.py stop 40 200 64 64 black --ms 3000          # early-stop test (firmware 0.6.1+)
+    python inktag.py probe zero                # custom-waveform probe (firmware 0.6+), see PROBE.md
+    python inktag.py probe pulse 20
+    python inktag.py probe push 20 --dir a
 """
 
 import argparse
 import asyncio
+import json
+import os
 import struct
 import sys
 import zlib
@@ -55,26 +61,120 @@ UUID_SERVICE = UUID_BASE.format(0x0000)
 UUID_CONTROL = UUID_BASE.format(0x0001)
 UUID_DATA = UUID_BASE.format(0x0002)
 
+
 CMD_BEGIN, CMD_END, CMD_SHOW, CMD_CLEAR, CMD_INFO, CMD_ABORT, CMD_TEMP = 1, 2, 3, 4, 5, 6, 7
 CMD_WINDOW = 0x0B
 CMD_DELETE, CMD_SLOT, CMD_UPDATE_BEGIN, CMD_UPDATE_END = 0x0C, 0x0D, 0x0E, 0x0F   # firmware 0.6+
 ESP_CHIPS = {5: "ESP32-C3", 13: "ESP32-C6"}   # firmware image byte 12, INFO byte 30 (0.6.1+)
+CMD_LUT = 0x10
+CMD_STOP = 0x11
+EVT_STOP = 0x8A
 EVT_READY, EVT_RECEIVED, EVT_DISPLAYED, EVT_INFO, EVT_ERROR = 0x81, 0x82, 0x83, 0x84, 0x8F
 EVT_WINDOW = 0x86
 EVT_UPDATED, EVT_SLOT = 0x87, 0x88
-BEGIN_SHOW = 0x01                 # BEGIN flags: draw the picture once it arrives
+EVT_LUT = 0x89
 
 # Window test (firmware 0.5+): see docs/PROTOCOL.md
 WINDOW_STRIPES = 0x10             # fill the box with six color stripes
 WINDOW_CODE_NORMAL, WINDOW_CODE_SKIP = 0x00, 0xFF
 WINDOW_BOX_DATA = 0x01            # flags: send only the box's pixels
+WINDOW_CUSTOM_LUT = 0x02          # flags (lab build): load the probe registers first
+WINDOW_DRF = 0x08                 # flags (lab build): PON + DRF + POF instead of AUTO
 
 
-def window_command(x, y, w, h, fill, code1=WINDOW_CODE_NORMAL, code2=WINDOW_CODE_NORMAL, box_data=True):
+def window_command(x, y, w, h, fill, code1=WINDOW_CODE_NORMAL, code2=WINDOW_CODE_NORMAL, box_data=True,
+                   extra_flags=0):
     if x % 8 or w % 8 or w <= 0 or h <= 0 or x + w > WIDTH or y + h > HEIGHT:
         raise ValueError(f"box must fit in {WIDTH}x{HEIGHT}, with x and width multiples of 8")
     return struct.pack("<BHHHHBBBB", CMD_WINDOW, x, y, w, h, fill, code1, code2,
-                       WINDOW_BOX_DATA if box_data else 0)
+                       (WINDOW_BOX_DATA if box_data else 0) | extra_flags)
+
+
+# ------------------------------------------------------------ custom-waveform probe (lab build)
+#
+# The LUT layout is the one the B/W UC8279 uses (FreeInk's recovered Xteink X3
+# tables): each register holds 7-byte groups [01, p0, p1, p2, p3, 01, 01], and
+# each phase byte is (voltage level << 6) | frames (0..63). Level 0 is ground
+# (no drive); levels 1 and 2 drive the ink in opposite directions. Nobody has
+# confirmed this layout on the colour UC8279E: that is what step 1 tests.
+#
+# Register 0x20 is VCOM, the electrode shared by every pixel. It is always held
+# at level 0, so pixels outside the box never see a voltage. 0x21-0x24 are the
+# four pixel levels; all four get the same waveform, so every pixel in the box
+# is driven alike whatever the picture data says.
+
+PROBE_BOX = (752, 488, 32, 32)    # a 32x32 corner, clear of the middle seam (x = 396)
+PROBE_MAX_AREA = 128 * 128        # the firmware refuses bigger boxes
+LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_ledger.json")
+
+
+def lut_phases(level, frames):
+    """Up to 4 phase bytes driving `level` for `frames` frames in total."""
+    if not 0 < frames <= 4 * 63:
+        raise ValueError("frames must be 1..252")
+    out = []
+    while frames:
+        n = min(63, frames)
+        out.append((level << 6) | n)
+        frames -= n
+    return out
+
+
+def lut_group(phases):
+    if len(phases) > 4:
+        raise ValueError("at most 4 phases per group")
+    return [0x01] + phases + [0] * (4 - len(phases)) + [0x01, 0x01]
+
+
+def lut_register(groups, length):
+    data = [b for g in groups for b in lut_group(g)]
+    if len(data) > length:
+        raise ValueError("waveform longer than the register")
+    return bytes(data + [0] * (length - len(data)))
+
+
+def probe_waveform(kind, frames, direction):
+    """-> (list of groups for the pixel rows, net charge in frames: + for a, - for b)."""
+    if kind == "zero":
+        return [lut_phases(0, 10)], 0
+    if kind == "pulse":
+        a, b = lut_phases(1, frames), lut_phases(2, frames)
+        # One group when it fits, as in the recovered B/W tables (e.g. 5A 9A).
+        return ([a + b] if len(a + b) <= 4 else [a, b]), 0
+    level = 1 if direction == "a" else 2
+    return [lut_phases(level, frames)], (frames if direction == "a" else -frames)
+
+
+def probe_registers(kind, frames, direction, length):
+    groups, net = probe_waveform(kind, frames, direction)
+    # VCOM mirrors the pixel rows' timing at level 0 (ground) throughout.
+    vcom = [[0x00 | (p & 0x3F) for p in g] for g in groups]
+    regs = [(0x20, lut_register(vcom, length))]
+    regs += [(r, lut_register(groups, length)) for r in (0x21, 0x22, 0x23, 0x24)]
+    return regs, net
+
+
+def ledger_load():
+    try:
+        with open(LEDGER) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def ledger_add(box, kind, frames, direction, net, ms):
+    data = ledger_load()
+    key = "{},{},{},{}".format(*box)
+    entry = data.setdefault(key, {"net": 0, "runs": []})
+    entry["net"] += net
+    entry["runs"].append({"kind": kind, "frames": frames, "dir": direction, "net": net, "ms": ms})
+    with open(LEDGER, "w") as f:
+        json.dump(data, f, indent=1)
+    return entry["net"]
+
+
+def parse_hex_bytes(text):
+    return bytes(int(t, 16) for t in text.replace(",", " ").split())
 
 
 def parse_window(msg):
@@ -263,6 +363,54 @@ async def run_ble(args, frame=None):
                 print(f"  pass {n}: " + ("skipped" if code == WINDOW_CODE_SKIP else f"{ms} ms (code {code})"))
             return
 
+        if args.cmd == "stop":
+            if args.x % 8 or args.w % 8 or args.w * args.h > 200 * 200:
+                sys.exit("x and width must be multiples of 8, box at most 200x200")
+            await tag.command(struct.pack("<BHHHHBHBB", CMD_STOP, args.x, args.y, args.w, args.h,
+                                          COLOR_CODES[args.fill], args.ms,
+                                          1 if args.method == "reset" else 0,
+                                          0 if args.no_pass2 else 1))
+            print(f"pass 1 of the box, stopped after {args.ms} ms by {args.method}...")
+            m = await tag.expect(EVT_STOP, 150)
+            stopped, p2, early = struct.unpack_from("<IIB", m, 2)
+            print(f"  stopped after {stopped} ms" + ("  (the refresh had already ended)" if early else ""))
+            print("  pass 2: " + ("not run" if args.no_pass2 else f"{p2} ms"))
+            return
+
+        if args.cmd == "probe":
+            if args.kind == "ledger":
+                for key, e in ledger_load().items():
+                    print(f"box {key}: net {e['net']:+d} frames over {len(e['runs'])} runs")
+                return
+            box = tuple(args.box)
+            if box[2] * box[3] > PROBE_MAX_AREA:
+                sys.exit(f"box too big for the probe (max {PROBE_MAX_AREA} pixels)")
+            regs, net = probe_registers(args.kind, args.frames, args.dir, args.lut_len)
+            if args.psr:
+                regs.append((0x00, parse_hex_bytes(args.psr)))
+            if args.cdi:
+                regs.append((0x50, parse_hex_bytes(args.cdi)))
+            await tag.command(bytes([CMD_LUT, 0xFF]))
+            await tag.expect(EVT_LUT, 5)
+            for reg, data in regs:
+                print(f"  0x{reg:02x}: {data.hex(' ')}")
+                await tag.command(bytes([CMD_LUT, reg]) + data)
+                await tag.expect(EVT_LUT, 5)
+            fill = COLOR_CODES[args.fill]
+            flags = WINDOW_CUSTOM_LUT | (WINDOW_DRF if args.drf else 0)
+            await tag.command(window_command(*box, fill, WINDOW_CODE_NORMAL, WINDOW_CODE_SKIP,
+                                             True, flags))
+            print(f"probe '{args.kind}' on box {box}...")
+            m = await tag.expect(EVT_WINDOW, 150)
+            _, _, _, ms, _ = parse_window(m)
+            print(f"  busy for {ms} ms" + ("  (BUSY never went low)" if ms == 0 else ""))
+            total = ledger_add(box, args.kind, args.frames, args.dir, net, ms)
+            print(f"  net charge on this box: {total:+d} frames")
+            if total:
+                other = "b" if total > 0 else "a"
+                print(f"  -> balance it before moving on: probe push {abs(total)} --dir {other}")
+            return
+
         if args.cmd == "temp":
             value = -128 if args.celsius == "off" else max(-20, min(60, int(args.celsius)))
             await tag.command(struct.pack("<Bb", CMD_TEMP, value))
@@ -362,6 +510,34 @@ def main():
                    help="same for pass 2")
     p.add_argument("--full-frame", action="store_true",
                    help="send the whole frame and narrow the window only for the refresh")
+    ble_args(p)
+
+    p = sub.add_parser("stop", help="experimental: stop a box refresh early (lab build)",
+                       description="Starts pass 1 of a box refresh, stops it after --ms, then runs "
+                                   "the short pass 2 (unless --no-pass2). See docs/EARLYSTOP.md.")
+    for n in ("x", "y", "w", "h"):
+        p.add_argument(n, type=int)
+    p.add_argument("fill", choices=list(COLOR_CODES))
+    p.add_argument("--ms", type=int, default=3000, help="stop after this many ms (100..30000)")
+    p.add_argument("--method", choices=["poweroff", "reset"], default="poweroff")
+    p.add_argument("--no-pass2", action="store_true", help="leave the box as the cut-short pass left it")
+    ble_args(p)
+
+    p = sub.add_parser("probe", help="experimental: custom waveform on a tiny box (lab build)",
+                       description="Loads a hand-made waveform into the controller's LUT registers "
+                                   "and runs it on one small box. See PROBE.md before using it.")
+    p.add_argument("kind", choices=["zero", "pulse", "push", "ledger"],
+                   help="zero: no drive at all; pulse: +N then -N frames (balanced); "
+                        "push: N frames one way (unbalanced, logged); ledger: show net charge per box")
+    p.add_argument("frames", type=int, nargs="?", default=10, help="frames per direction (1..252)")
+    p.add_argument("--dir", choices=["a", "b"], default="a", help="push direction (level 1 or 2)")
+    p.add_argument("--box", type=int, nargs=4, default=list(PROBE_BOX), metavar=("X", "Y", "W", "H"))
+    p.add_argument("--fill", choices=list(COLOR_CODES), default="black",
+                   help="picture data for the box (only matters if the LUT is ignored)")
+    p.add_argument("--drf", action="store_true", help="refresh with PON + DRF instead of AUTO")
+    p.add_argument("--psr", help="PSR override, hex bytes, e.g. '0B 2A'")
+    p.add_argument("--cdi", help="CDI override, one hex byte")
+    p.add_argument("--lut-len", type=int, default=42, choices=[42, 49], help="bytes per LUT register")
     ble_args(p)
 
     ble_args(sub.add_parser("info", help="print device info"))

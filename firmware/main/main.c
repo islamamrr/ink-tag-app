@@ -279,6 +279,8 @@ static bool needs_owner(uint8_t op)
     case INKTAG_CMD_DELETE:
     case INKTAG_CMD_UPDATE_BEGIN:
     case INKTAG_CMD_UPDATE_END:
+    case INKTAG_CMD_LUT:
+    case INKTAG_CMD_STOP:
         return true;
     default:
         return false;
@@ -516,6 +518,51 @@ static void handle_command(const uint8_t *cmd, size_t len)
         notify(INKTAG_EVT_UPDATED, INKTAG_OK);
         vTaskDelay(pdMS_TO_TICKS(500));  // let the notification go out
         esp_restart();
+        break;
+    }
+
+    case INKTAG_CMD_STOP: {
+        if (len < 14 || s_state != STATE_IDLE) {
+            notify_error(len < 14 ? INKTAG_ERR_BAD_COMMAND : INKTAG_ERR_BAD_STATE, cmd[0]);
+            return;
+        }
+        static window_ctx_t w;
+        w.win = (epd_window_t){.x = rd16(&cmd[1]), .y = rd16(&cmd[3]), .w = rd16(&cmd[5]), .h = rd16(&cmd[7]),
+                               .code1 = EPD_WIN_CODE_NORMAL, .code2 = EPD_WIN_CODE_NORMAL,
+                               .flags = EPD_WIN_BOX_DATA};
+        w.fill = cmd[9];
+        w.stored = image_store_has_image();
+        epd_stop_t stop = {.stop_ms = rd16(&cmd[10]), .method = cmd[12], .flags = cmd[13]};
+        epd_stop_result_t res;
+        esp_err_t err = epd_show_early_stop(&w.win, window_reader, &w, &stop, &res);
+        if (err == ESP_ERR_INVALID_ARG) {
+            notify_error(INKTAG_ERR_BAD_COMMAND, cmd[0]);
+            return;
+        }
+        if (err != ESP_OK) {
+            notify_error(err == ESP_ERR_TIMEOUT ? INKTAG_ERR_PANEL_TIMEOUT : INKTAG_ERR_FLASH, cmd[0]);
+            return;
+        }
+        uint8_t msg[11 + 2] = {INKTAG_EVT_STOP, INKTAG_OK};
+        memcpy(&msg[2], &res.stopped_ms, 4);
+        memcpy(&msg[6], &res.pass2_ms, 4);
+        msg[10] = res.finished_first;
+        ble_service_notify(msg, 11);
+        break;
+    }
+
+    case INKTAG_CMD_LUT: {
+        if (len < 2 || s_state != STATE_IDLE) {
+            notify_error(len < 2 ? INKTAG_ERR_BAD_COMMAND : INKTAG_ERR_BAD_STATE, cmd[0]);
+            return;
+        }
+        esp_err_t err = epd_lut_set(cmd[1], &cmd[2], len - 2);
+        if (err != ESP_OK) {
+            notify_error(err == ESP_ERR_NO_MEM ? INKTAG_ERR_OVERFLOW : INKTAG_ERR_BAD_COMMAND, cmd[0]);
+            return;
+        }
+        uint8_t msg[4] = {INKTAG_EVT_LUT, INKTAG_OK, cmd[1], (uint8_t)epd_lut_count()};
+        ble_service_notify(msg, sizeof(msg));
         break;
     }
 

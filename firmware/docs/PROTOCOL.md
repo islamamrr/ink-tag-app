@@ -41,6 +41,8 @@ Request the largest MTU the phone allows (the badge accepts up to 517). All mult
 | `0x0D` | SLOT | u8 slot | SLOT. Firmware 0.6+ |
 | `0x0E` | UPDATE_BEGIN | u32 firmware size | erases the update slot (a few seconds), then READY. Firmware 0.6+, see [Wireless updates](#wireless-updates-firmware-06) |
 | `0x0F` | UPDATE_END | u32 CRC-32 of the whole firmware image | checks and installs it, UPDATED, then the badge restarts. Firmware 0.6+ |
+| `0x10` | LUT | u8 register, then its data | experimental: stores a register for the custom-waveform probe, then LUT. Lab build only, see [PROBE.md](PROBE.md) |
+| `0x11` | STOP | u16 x, u16 y, u16 w, u16 h, u8 fill, u16 stop_ms, u8 method, u8 flags | experimental: starts pass 1 of a box refresh and stops it after stop_ms (method 0 power off, 1 reset; flags bit 0 runs pass 2 after), then STOP. Lab build only, see [EARLYSTOP.md](EARLYSTOP.md) |
 | `0x0B` | WINDOW | u16 x, u16 y, u16 w, u16 h, u8 fill, u8 code1, u8 code2, u8 flags | experimental: redraws one box over the stored image, then WINDOW. Firmware 0.5+, see [Window test](#window-test-firmware-05-experimental) |
 
 ## Notifications (from Control)
@@ -57,6 +59,8 @@ Every notification starts with `[event][status]`.
 | `0x86` | WINDOW | i8 panel temperature, u8 code1, u8 code2 (as used), u32 pass 1 ms, u32 pass 2 ms (0 = skipped) (firmware 0.5+) |
 | `0x87` | UPDATED | – the badge restarts into the new firmware about 0.5 s later (firmware 0.6+) |
 | `0x88` | SLOT | u8 slot, u8 used (0/1), u8 format, u32 length, u32 CRC-32 of the stored picture (firmware 0.6+) |
+| `0x89` | LUT | u8 register, u8 registers now held (lab build) |
+| `0x8A` | STOP | u32 ms until the stop, u32 pass 2 ms (0 = not run), u8 1 if the refresh had already ended (lab build) |
 | `0x8F` | ERROR | u8 opcode that failed; status holds the error |
 
 Error codes: 1 bad command, 2 bad length, 3 bad state, 4 overflow, 5 CRC mismatch, 6 flash error, 7 panel timeout (the panel stayed busy too long, or, from firmware 0.3.1, never went busy at all, which means no panel is answering; nothing was drawn), 8 no stored image, 9 bad format, 10 locked, 11 no such slot (0.6+), 12 not a valid Ink Tag firmware for this chip (0.6+).
@@ -115,4 +119,6 @@ A development command for finding out whether the panel can redraw part of the s
 - **code1, code2:** the value written to register `0xE6` before each pass. `0x00` uses the normal code for the panel temperature (2/7 ... 42/47), `0xFF` skips the pass, anything else is forced. Codes above 47 are outside what the vendor code uses: on sibling UltraChip chips that's where fast and partial waveforms live (ESPHome uses 90 and 110 on the UC8179), but nobody knows what this panel's memory holds there.
 - **flags bit 0 set:** the window (`0x83`) is narrowed to the box first and only the box's pixels are sent. **Clear:** the whole frame is sent with a full-screen window, and the window is narrowed only for the refresh. Which of the two the controller wants is one of the things to find out.
 - The WINDOW answer reports how long BUSY stayed low in each pass. Unlike a normal refresh, a very short pass is reported rather than treated as a missing panel; a pass that never goes busy is still ERROR `panel timeout`.
+- **flags bit 1 (lab build):** custom-waveform probe. After the normal init, the registers stored with LUT are written, and a forced code of 0 means 0xE0/0xE6 aren't written at all. Only allowed with bit 0 set, a box of at most 128 × 128, and at least one stored register. A pass that never pulls BUSY low reports 0 ms instead of an error. **Bit 2:** the fill's low 2 bits go to the panel as is, in both passes. **Bit 3:** refresh with PON, DRF (0x12) and POF instead of AUTO (0x17).
+- **LUT (0x10, lab build):** `[0x10][register][data...]`. Accepted registers: 0x20–0x2F (1–64 bytes), 0x00 PSR override (1–2), 0x50 CDI override (1); 0xFF with no data clears them all. Anything else answers ERROR `bad command`; more than 12 registers answers `overflow`. Kept in RAM until cleared or reboot. The control characteristic now takes writes of up to 72 bytes. Bench steps: [PROBE.md](PROBE.md).
 - The stored image isn't changed. SHOW redraws the whole picture, which also clears any ghosting a test leaves behind.

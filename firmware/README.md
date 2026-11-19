@@ -19,7 +19,7 @@ Built with **ESP-IDF v5.4.1** for the **ESP32-C6** (the B2 product board) and th
 | `main/protocol.h` | BLE protocol constants, shared with the app spec |
 | `docs/PROTOCOL.md` | Protocol description for the phone app |
 | `tools/inktag.py` | PC test tool: converts pictures and sends them over BLE |
-| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0 over USB), firmware 0.6.1 with the default pins |
+| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0 over USB), firmware 0.6.1 with the default pins. The lab experiments (probe, early stop) are not in it: flash `downloads/inktag-esp32c3-lab.bin` from the project, or build from source |
 | `prebuilt/inktag-esp32c6.bin` | Ready-to-flash image for the B2 board (ESP32-C6, flash at 0x0 over USB), firmware 0.6.1 |
 | `prebuilt/inktag-esp32c*-update.bin` | The same firmware as an app image, for a wireless update (`tools/inktag.py update`) |
 | `docs/GETTING_STARTED.md` | Step-by-step from parts to first picture |
@@ -130,6 +130,13 @@ python tools/inktag.py window 304 200 184 128 white --code1 skip --code2 90
 ```
 
 What to look for: whether only the box flashes (the rest of the picture stays still), whether the box lands where expected or mirrored, and the pass times. Normal passes take seconds; a pass well under 2–3 seconds with a clean black/white change would mean a fast waveform exists at that code. Try a handful of codes (for example 50, 60, 90, 110, 127), not a sweep, and redraw the whole picture with `show` afterwards to clear any ghosting. Nothing here writes to the panel's memory, so a bad code can only leave a messy picture.
+
+## Custom-waveform probe and early stop (lab build, experimental)
+
+The window test showed that a box can be redrawn on its own, but at the full 18 s, and Topwin has no faster waveform for this panel. the lab build adds two separate experiments, both confined to one small box:
+
+- **Custom waveform:** a LUT command loads our own waveform into the controller's registers, first a "do nothing" one to see whether the controller uses it at all, then balanced pulses, then short pushes. VCOM stays grounded and the voltage registers can't be changed. Steps: [docs/PROBE.md](docs/PROBE.md). `python tools/inktag.py probe zero`
+- **Early stop:** start a box refresh and cut it off after a few seconds, to see whether the half-finished change is readable enough for a to-do tick, and what it costs. Steps: [docs/EARLYSTOP.md](docs/EARLYSTOP.md). `python tools/inktag.py stop 40 200 64 64 black --ms 3000`
 
 ## Not done yet
 

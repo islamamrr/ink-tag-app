@@ -6,6 +6,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
@@ -315,6 +316,47 @@ static esp_err_t refresh_timed(bool allow_fast, uint32_t *ms_out)
     return ESP_OK;
 }
 
+// Refresh for the custom-LUT probe. A probe waveform can be a few frames
+// long, so BUSY is polled every 100 us instead of every tick, and a refresh
+// that never pulls BUSY low is reported as 0 ms (the controller may have run
+// an empty waveform) rather than as a missing panel. With `drf`, the panel is
+// powered on, refreshed with DRF (0x12) and powered off as three commands,
+// as the B/W UC8279 drivers do with register LUTs, instead of AUTO (0x17).
+static esp_err_t refresh_probe(bool drf, uint32_t *ms_out)
+{
+    *ms_out = 0;
+    if (drf) {
+        ESP_RETURN_ON_ERROR(write_cmd(0x04), TAG, "PON");
+        ESP_RETURN_ON_ERROR(wait_busy_started(), TAG, "PON busy");
+        ESP_RETURN_ON_ERROR(CMD(0x12, 0x00), TAG, "DRF");
+    } else {
+        ESP_RETURN_ON_ERROR(CMD(0x17, 0xA5), TAG, "AUTO");
+    }
+    int64_t start = esp_timer_get_time();
+    while (gpio_get_level(PIN_BUSY) == 1) {
+        if (esp_timer_get_time() - start >= REFRESH_START_MS * 1000LL) {
+            ESP_LOGW(TAG, "probe: BUSY never went low, reporting 0 ms");
+            goto done;
+        }
+        esp_rom_delay_us(100);
+    }
+    while (gpio_get_level(PIN_BUSY) == 0) {
+        if (esp_timer_get_time() - start >= BUSY_TIMEOUT_MS * 1000LL) {
+            ESP_LOGE(TAG, "probe: panel busy timeout");
+            return ESP_ERR_TIMEOUT;
+        }
+        esp_rom_delay_us(100);
+    }
+    *ms_out = (uint32_t)((esp_timer_get_time() - start) / 1000);
+    ESP_LOGW(TAG, "probe: refresh took %lu ms", (unsigned long)*ms_out);
+done:
+    if (drf) {
+        ESP_RETURN_ON_ERROR(write_cmd(0x02), TAG, "POF");
+        ESP_RETURN_ON_ERROR(wait_busy_started(), TAG, "POF busy");
+    }
+    return ESP_OK;
+}
+
 static esp_err_t refresh(void)
 {
     return refresh_timed(false, NULL);
@@ -459,11 +501,82 @@ esp_err_t epd_show(epd_reader_t reader, void *ctx)
     return panel_sleep();
 }
 
-// One pass of a window refresh. code is the 0xE6 waveform code.
+// ---------------------------------------------------------------- custom LUT probe
+
+// Register values sent after the normal init, before a custom-LUT window
+// refresh: LUT registers 0x20-0x2F, plus PSR (0x00) and CDI (0x50) overrides.
+// Nothing else is accepted, so the probe can't touch the power, booster or
+// voltage registers. Kept in RAM only.
+#define LUT_SLOTS 12
+#define LUT_MAX_BYTES 64
+
+typedef struct {
+    uint8_t reg, len;
+    uint8_t data[LUT_MAX_BYTES];
+} lut_slot_t;
+
+static lut_slot_t s_lut[LUT_SLOTS];
+static int s_lut_count;
+
+static const uint8_t RAW_MAP[16] = {0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3};
+
+esp_err_t epd_lut_set(uint8_t reg, const uint8_t *data, size_t len)
+{
+    if (reg == EPD_LUT_CLEAR) {
+        s_lut_count = 0;
+        ESP_LOGW(TAG, "probe: custom LUT cleared");
+        return ESP_OK;
+    }
+    bool ok = (reg >= 0x20 && reg <= 0x2F && len >= 1 && len <= LUT_MAX_BYTES) ||
+              (reg == 0x00 && len >= 1 && len <= 2) ||
+              (reg == 0x50 && len == 1);
+    if (!ok) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    int i = 0;
+    while (i < s_lut_count && s_lut[i].reg != reg) {
+        i++;
+    }
+    if (i == s_lut_count) {
+        if (s_lut_count == LUT_SLOTS) {
+            return ESP_ERR_NO_MEM;
+        }
+        s_lut_count++;
+    }
+    s_lut[i].reg = reg;
+    s_lut[i].len = len;
+    memcpy(s_lut[i].data, data, len);
+    ESP_LOGW(TAG, "probe: register 0x%02x set, %u bytes", reg, (unsigned)len);
+    return ESP_OK;
+}
+
+int epd_lut_count(void)
+{
+    return s_lut_count;
+}
+
+static esp_err_t load_custom_luts(void)
+{
+    for (int i = 0; i < s_lut_count; i++) {
+        const lut_slot_t *l = &s_lut[i];
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, l->data, l->len, ESP_LOG_INFO);
+        ESP_RETURN_ON_ERROR(write_cmd_data(l->reg, l->data, l->len), TAG, "lut 0x%02x", l->reg);
+    }
+    return ESP_OK;
+}
+
+// One pass of a window refresh. code is the 0xE6 waveform code. With a
+// custom LUT, code 0 (normal) leaves 0xE0/0xE6 alone.
 static esp_err_t window_pass(const epd_window_t *win, const uint8_t map[16], uint8_t code,
                              epd_reader_t reader, void *ctx, uint32_t *ms)
 {
-    ESP_RETURN_ON_ERROR(force_temperature(code), TAG, "code");
+    bool custom = win->flags & EPD_WIN_CUSTOM_LUT;
+    if (!custom || code != EPD_WIN_CODE_NORMAL) {
+        ESP_RETURN_ON_ERROR(force_temperature(code), TAG, "code");
+    }
+    if (win->flags & EPD_WIN_RAW) {
+        map = RAW_MAP;
+    }
     if (win->flags & EPD_WIN_BOX_DATA) {
         // Window first, then only the box's pixels.
         ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win");
@@ -474,7 +587,90 @@ static esp_err_t window_pass(const epd_window_t *win, const uint8_t map[16], uin
         ESP_RETURN_ON_ERROR(send_pass(map, reader, ctx), TAG, "frame");
         ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win");
     }
+    if (custom) {
+        return refresh_probe(win->flags & EPD_WIN_DRF, ms);
+    }
     return refresh_timed(true, ms);
+}
+
+// ---------------------------------------------------------------- early stop test
+
+// Starts the normal pass-1 refresh of a box, then stops it after stop_ms by
+// powering the panel off (POF 0x02) or by a hardware reset, and optionally
+// runs the short pass 2 normally afterwards. Finds out whether a refresh cut
+// short leaves a readable change, and how the box looks after pass 2.
+static esp_err_t early_stop_passes(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                                   const epd_stop_t *stop, epd_stop_result_t *res)
+{
+    int8_t temp;
+    uint8_t code1, code2;
+
+    ESP_RETURN_ON_ERROR(panel_init_regs(), TAG, "init");
+    ESP_RETURN_ON_ERROR(panel_read_temperature(&temp), TAG, "temp");
+    s_last_temp = temp;
+    temperature_codes(temp, &code1, &code2);
+    ESP_RETURN_ON_ERROR(force_temperature(code1), TAG, "code1");
+    ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win");
+    ESP_RETURN_ON_ERROR(send_box_pass(PASS1_MAP, win, reader, ctx), TAG, "box1");
+    ESP_RETURN_ON_ERROR(CMD(0x17, 0xA5), TAG, "refresh");
+
+    int64_t t0 = esp_timer_get_time();
+    while (gpio_get_level(PIN_BUSY) == 1) {
+        if (esp_timer_get_time() - t0 >= REFRESH_START_MS * 1000LL) {
+            return ESP_ERR_TIMEOUT;  // never went busy: no panel
+        }
+        esp_rom_delay_us(100);
+    }
+    t0 = esp_timer_get_time();
+    res->finished_first = false;
+    while ((esp_timer_get_time() - t0) / 1000 < stop->stop_ms) {
+        if (gpio_get_level(PIN_BUSY) == 1) {
+            res->finished_first = true;  // the refresh ended before the timer
+            break;
+        }
+        esp_rom_delay_us(500);
+    }
+    res->stopped_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000);
+    ESP_LOGW(TAG, "early stop: %s after %lu ms%s", stop->method == EPD_STOP_RESET ? "reset" : "power off",
+             (unsigned long)res->stopped_ms, res->finished_first ? " (refresh had already ended)" : "");
+
+    if (!res->finished_first) {
+        if (stop->method == EPD_STOP_RESET) {
+            ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
+        } else {
+            ESP_RETURN_ON_ERROR(write_cmd(0x02), TAG, "POF");
+            ESP_RETURN_ON_ERROR(wait_busy(), TAG, "POF busy");
+        }
+    }
+    if (stop->flags & EPD_STOP_THEN_PASS2) {
+        if (stop->method == EPD_STOP_RESET) {
+            ESP_RETURN_ON_ERROR(panel_init_regs(), TAG, "init2");
+        }
+        ESP_RETURN_ON_ERROR(force_temperature(code2), TAG, "code2");
+        ESP_RETURN_ON_ERROR(set_window(win->x, win->y, win->w, win->h), TAG, "win2");
+        ESP_RETURN_ON_ERROR(send_box_pass(PASS2_MAP, win, reader, ctx), TAG, "box2");
+        ESP_RETURN_ON_ERROR(refresh_timed(true, &res->pass2_ms), TAG, "pass2");
+    }
+    return ESP_OK;
+}
+
+esp_err_t epd_show_early_stop(const epd_window_t *win, epd_reader_t reader, void *ctx,
+                              const epd_stop_t *stop, epd_stop_result_t *res)
+{
+    memset(res, 0, sizeof(*res));
+    if (win->w == 0 || win->h == 0 || win->x % 8 || win->w % 8 ||
+        win->x + win->w > EPD_WIDTH || win->y + win->h > EPD_HEIGHT ||
+        (uint32_t)win->w * win->h > EPD_STOP_MAX_AREA ||
+        stop->stop_ms < 100 || stop->stop_ms > 30000 || stop->method > EPD_STOP_RESET) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
+    esp_err_t err = early_stop_passes(win, reader, ctx, stop, res);
+    if (err != ESP_OK) {
+        CMD(0x07, 0xA5);
+        return err;
+    }
+    return panel_sleep();
 }
 
 static esp_err_t show_window_passes(const epd_window_t *win, epd_reader_t reader, void *ctx,
@@ -487,6 +683,10 @@ static esp_err_t show_window_passes(const epd_window_t *win, epd_reader_t reader
     ESP_RETURN_ON_ERROR(panel_read_temperature(&temp), TAG, "temp");
     s_last_temp = temp;
     temperature_codes(temp, &normal1, &normal2);
+    if (win->flags & EPD_WIN_CUSTOM_LUT) {
+        ESP_LOGW(TAG, "probe: loading %d custom register(s)", s_lut_count);
+        ESP_RETURN_ON_ERROR(load_custom_luts(), TAG, "lut");
+    }
     res->code1 = win->code1 == EPD_WIN_CODE_NORMAL ? normal1 : win->code1;
     res->code2 = win->code2 == EPD_WIN_CODE_NORMAL ? normal2 : win->code2;
     ESP_LOGW(TAG, "window test: box %u,%u %ux%u, %s data, codes %u/%u (normal %u/%u at %d C)",
@@ -512,6 +712,13 @@ esp_err_t epd_show_window(const epd_window_t *win, epd_reader_t reader, void *ct
     if (win->w == 0 || win->h == 0 || win->x % 8 || win->w % 8 ||
         win->x + win->w > EPD_WIDTH || win->y + win->h > EPD_HEIGHT ||
         (win->code1 == EPD_WIN_CODE_SKIP && win->code2 == EPD_WIN_CODE_SKIP)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    // A custom waveform is only allowed on a small box, with box-only data so
+    // nothing outside it is even written, and only once a LUT is loaded.
+    if ((win->flags & EPD_WIN_CUSTOM_LUT) &&
+        ((uint32_t)win->w * win->h > EPD_LUT_MAX_AREA || !(win->flags & EPD_WIN_BOX_DATA) ||
+         s_lut_count == 0)) {
         return ESP_ERR_INVALID_ARG;
     }
     ESP_RETURN_ON_ERROR(panel_reset(), TAG, "reset");
