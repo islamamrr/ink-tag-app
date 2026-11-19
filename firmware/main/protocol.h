@@ -7,7 +7,7 @@
 #define INKTAG_PROTOCOL_VERSION 1
 #define INKTAG_FW_VERSION_MAJOR 0
 #define INKTAG_FW_VERSION_MINOR 6
-#define INKTAG_FW_VERSION_PATCH 0
+#define INKTAG_FW_VERSION_PATCH 1
 
 // 128-bit UUIDs, written here in the usual string order:
 //   service  b5a10000-6e6b-4a7a-9c3e-1f2a3b4c5d6e
@@ -110,4 +110,6 @@ typedef struct __attribute__((packed)) {
     uint8_t current_slot;   // slot on the panel, or 0xFF (fw 0.6+)
     uint8_t update_flags;   // INKTAG_UPDATE_* (fw 0.6+)
     uint32_t max_firmware;  // largest firmware image accepted, bytes (fw 0.6+)
+    uint8_t chip;           // chip id as in the firmware image header: 5 = ESP32-C3, 13 = ESP32-C6 (fw 0.6.1+)
 } inktag_info_t;
+_Static_assert(sizeof(inktag_info_t) == 31, "INFO layout is part of the protocol");

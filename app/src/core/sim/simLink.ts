@@ -34,6 +34,7 @@ export class SimLink implements Link {
   async connect() {
     await sleep(this.tag.timing === 'instant' ? 0 : 400);
     this._connected = true;
+    this.tag.onRestart = () => this.drop();
     this.tag.log(`I ble: connected, MTU ${this.mtu}`);
   }
 

@@ -7,6 +7,7 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 
 import { BleLink, type BadgeLinks, InkTag, type Log, scanForBadges, TagClient } from '../core';
+import { bundledFirmware } from './firmware';
 import { loadFonts } from './fonts';
 import { bluetoothAvailable, ensureBluetoothPermissions, getRadio } from './radio';
 import { createSkiaRenderer } from './render';
@@ -47,6 +48,7 @@ export function getInkTag(): Promise<InkTag> {
       renderer,
       links: bluetoothAvailable() ? bleLinks : undefined,
       randomBytes: (n) => Crypto.getRandomBytes(n),
+      firmware: bundledFirmware,
       log: (kind, text) => logListeners.forEach((l) => l(kind, text)),
     });
     await app.init();

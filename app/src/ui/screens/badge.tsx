@@ -8,6 +8,7 @@ import { Alert, Animated, Easing, Pressable, Text, useWindowDimensions, View } f
 import { LockedError, type NearbyBadge, type Orientation, userMessage } from '../../core';
 import { Btn, Card, Chip, Col, Field, Group, H, Label, ListRow, Meta, Problem, Row, Screen, Sheet, T, ToggleRow, useText, Wordmark } from '../kit';
 import { useNav } from '../nav';
+import { FirmwareLine } from '../firmware';
 import { BadgeFrame, ItemThumb, TemplateThumb } from '../pictures';
 import { Dots, Icon, InkDot, InkStrip, useReduceMotion } from '../print';
 import { ago, useServices } from '../services';
@@ -148,6 +149,23 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
       },
     ]);
 
+  // Tapping the badge's version: install the app's firmware again (or now), for testing an update end to end.
+  const offer = connected ? app.firmwareOffer(id) : null;
+  const firmwareMenu =
+    offer && !app.firmwareJob()
+      ? () =>
+          Alert.alert(
+            `Firmware ${offer.from}`,
+            offer.newer
+              ? `This app carries ${offer.to}. Install it now? It takes about a minute, and the badge restarts.`
+              : `This is the newest firmware the app carries. Install ${offer.to} again? It takes about a minute, and the badge restarts.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: offer.newer ? 'Install' : 'Reinstall', onPress: () => void app.updateFirmware(id) },
+            ],
+          )
+      : undefined;
+
   const status = connected ? 'Connected' : connecting ? 'Connecting…' : b.kind === 'demo' ? 'Demo badge' : 'Not nearby';
   const screen = b.screen;
   const facts = [
@@ -180,6 +198,7 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
         <Btn label={`Connect to ${b.name}`} onPress={() => run('connect', () => app.connect(id))} busy={busy === 'connect'} />
       )}
       {notice && <T muted>{notice}</T>}
+      <FirmwareLine app={app} badgeId={id} busy={!!busy} />
 
       <Row gap={18} style={{ alignItems: 'flex-start', paddingTop: 6 }}>
         {item ? (
@@ -226,7 +245,8 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
         <ListRow
           label={b.kind === 'demo' ? 'Kind' : 'Badge'}
           detail={b.kind === 'demo' ? 'Lives on this phone' : undefined}
-          value={b.kind === 'demo' ? 'Demo' : `${b.advertisedName} · v${b.firmware ?? '?'}`}
+          value={b.kind === 'demo' ? 'Demo' : `${b.advertisedName} · v${(connected && conn.info?.firmware) || b.firmware || '?'}`}
+          onPress={firmwareMenu}
           last
         />
       </Group>

@@ -19,8 +19,8 @@ Built with **ESP-IDF v5.4.1** for the **ESP32-C6** (the B2 product board) and th
 | `main/protocol.h` | BLE protocol constants, shared with the app spec |
 | `docs/PROTOCOL.md` | Protocol description for the phone app |
 | `tools/inktag.py` | PC test tool: converts pictures and sends them over BLE |
-| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0 over USB), firmware 0.6.0 with the default pins |
-| `prebuilt/inktag-esp32c6.bin` | Ready-to-flash image for the B2 board (ESP32-C6, flash at 0x0 over USB), firmware 0.6.0 |
+| `prebuilt/inktag-esp32c3.bin` | Ready-to-flash image for the C3 SuperMini (flash at 0x0 over USB), firmware 0.6.1 with the default pins |
+| `prebuilt/inktag-esp32c6.bin` | Ready-to-flash image for the B2 board (ESP32-C6, flash at 0x0 over USB), firmware 0.6.1 |
 | `prebuilt/inktag-esp32c*-update.bin` | The same firmware as an app image, for a wireless update (`tools/inktag.py update`) |
 | `docs/GETTING_STARTED.md` | Step-by-step from parts to first picture |
 
@@ -75,7 +75,9 @@ python tools/inktag.py update prebuilt/inktag-esp32c3-update.bin   # or build-c3
 python tools/inktag.py info                                        # version, slot, rollback
 ```
 
-Not done yet, and needed before badges are sold: signed updates (secure boot with a signing key, so only firmware Ink Tag built is accepted, even from the owner's phone), and the update screen in the app.
+The phone app carries the update images (`app/assets/firmware`, copied by `node app/tools/bundle_firmware.mjs` after a rebuild) and installs newer firmware on its own when the badge is connected and idle. Sending a picture pauses it. The badge reports its chip in INFO from 0.6.1, so the app picks the right file. A 0.6.0 badge is an ESP32-C3.
+
+Not done yet, and needed before badges are sold: signed updates (secure boot with a signing key, so only firmware Ink Tag built is accepted, even from the owner's phone).
 
 ## Try it from a computer
 

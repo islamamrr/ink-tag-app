@@ -58,6 +58,7 @@ UUID_DATA = UUID_BASE.format(0x0002)
 CMD_BEGIN, CMD_END, CMD_SHOW, CMD_CLEAR, CMD_INFO, CMD_ABORT, CMD_TEMP = 1, 2, 3, 4, 5, 6, 7
 CMD_WINDOW = 0x0B
 CMD_DELETE, CMD_SLOT, CMD_UPDATE_BEGIN, CMD_UPDATE_END = 0x0C, 0x0D, 0x0E, 0x0F   # firmware 0.6+
+ESP_CHIPS = {5: "ESP32-C3", 13: "ESP32-C6"}   # firmware image byte 12, INFO byte 30 (0.6.1+)
 EVT_READY, EVT_RECEIVED, EVT_DISPLAYED, EVT_INFO, EVT_ERROR = 0x81, 0x82, 0x83, 0x84, 0x8F
 EVT_WINDOW = 0x86
 EVT_UPDATED, EVT_SLOT = 0x87, 0x88
@@ -201,6 +202,8 @@ async def run_ble(args, frame=None):
                       f"showing: {'none' if cur == 0xFF else cur}")
                 print(f"firmware slot {1 if uflags & 1 else 0}, largest update {maxfw} bytes"
                       + (", a failed update was rolled back" if uflags & 2 else ""))
+            if len(m) >= 31:   # firmware 0.6.1+: chip id
+                print(f"chip: {ESP_CHIPS.get(m[30], f'id {m[30]}')}")
             return
 
         if args.cmd == "slots":
@@ -226,6 +229,11 @@ async def run_ble(args, frame=None):
             fw = open(args.firmware, "rb").read()
             if fw[:1] != b"\xe9":
                 sys.exit("that isn't an app image: use build/inktag.bin, not the merged flash image")
+            await tag.command(bytes([CMD_INFO]))
+            m = await tag.expect(EVT_INFO, 5)
+            chip = m[30] if len(m) >= 31 else 5   # 0.6.0 badges are all ESP32-C3
+            if fw[12] != chip:
+                sys.exit(f"that firmware is for {ESP_CHIPS.get(fw[12], fw[12])}, this badge is {ESP_CHIPS.get(chip, chip)}")
             await tag.command(struct.pack("<BI", CMD_UPDATE_BEGIN, len(fw)))
             print("erasing the update slot...")
             await tag.expect(EVT_READY, 30)

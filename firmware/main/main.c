@@ -83,6 +83,7 @@ static void notify_info(void)
         .update_flags = (ota_update_running_slot() ? INKTAG_UPDATE_RUNNING_SLOT1 : 0) |
                         (ota_update_rolled_back() ? INKTAG_UPDATE_ROLLED_BACK : 0),
         .max_firmware = ota_update_capacity(),
+        .chip = CONFIG_IDF_FIRMWARE_CHIP_ID,
         .temp_override = epd_get_temp_override(),
         .lock_flags = (lock_is_locked() ? INKTAG_LOCK_LOCKED : 0) |
                       (lock_allowed() ? INKTAG_LOCK_AUTHORIZED : 0),
