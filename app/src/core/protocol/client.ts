@@ -13,15 +13,19 @@ import {
   encodeAuthRequest,
   encodeBegin,
   encodeClear,
+  encodeDelete,
   encodeEnd,
   encodeInfo,
   encodeLock,
   encodeShow,
+  encodeSlot,
   encodeTemp,
   encodeUnlock,
   encodeUpdateBegin,
   encodeUpdateEnd,
   parseInfo,
+  parseSlot,
+  type SlotInfo,
   type TagInfo,
 } from './codec';
 import {
@@ -77,6 +81,8 @@ export interface UploadOptions {
   ackEvery?: number;
   /** Write with response on every chunk. Used automatically to retry a CRC mismatch. */
   safe?: boolean;
+  /** Store in this picture slot (fw 0.6+). Without one the badge replaces the picture it shows. */
+  slot?: number;
 }
 
 /** Where a firmware update is. After 'restarting' the badge drops the connection. */
@@ -237,11 +243,27 @@ export class TagClient {
     return info;
   }
 
-  /** Redraws the stored image. Resolves with the panel temperature. */
-  show(): Promise<number | null> {
+  /** Redraws the stored image, or the picture in `slot` (fw 0.6+). Resolves with the panel temperature. */
+  show(slot?: number): Promise<number | null> {
     return this.exclusive(async () => {
-      await this.send(encodeShow());
+      await this.send(encodeShow(slot));
       return this.displayedOrThrow();
+    });
+  }
+
+  /** What one picture slot holds (fw 0.6+). */
+  slot(slot: number): Promise<SlotInfo> {
+    return this.exclusive(async () => {
+      await this.send(encodeSlot(slot));
+      return parseSlot(await this.expect(Evt.SLOT, this.timeouts.info));
+    });
+  }
+
+  /** Empties a picture slot (fw 0.6+). The panel keeps showing what it shows. */
+  deleteSlot(slot: number): Promise<TagInfo> {
+    return this.exclusive(async () => {
+      await this.send(encodeDelete(slot));
+      return parseInfo(await this.expect(Evt.INFO, this.timeouts.info));
     });
   }
 
@@ -373,7 +395,7 @@ export class TagClient {
   ) {
     const { signal, onProgress, onStage, ackEvery = 32 } = opts;
     onStage?.('erasing', attempt);
-    await this.beginWithRetry(frame.length, signal);
+    await this.beginWithRetry(frame.length, signal, opts.slot);
     onBegan();
     onStage?.('sending', attempt);
 
@@ -472,9 +494,9 @@ export class TagClient {
   }
 
   /** BEGIN; on "bad state" (a stale upload on the badge) ABORT and try once more. */
-  private async beginWithRetry(length: number, signal?: AbortSignal) {
+  private async beginWithRetry(length: number, signal?: AbortSignal, slot?: number) {
     for (let retried = false; ; retried = true) {
-      await this.send(encodeBegin(length, FMT_NATIVE_4BPP));
+      await this.send(encodeBegin(length, FMT_NATIVE_4BPP, slot));
       try {
         await this.expect(Evt.READY, this.timeouts.ready, signal);
         return;

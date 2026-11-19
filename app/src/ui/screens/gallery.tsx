@@ -112,16 +112,17 @@ export function GalleryScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 20 }}>
               {items.map((it, i) => {
                 const onBadge = badge?.shownItemId === it.id;
+                const stored = !onBadge && !!badge && app.slotOf(badge.id, it.id) !== null;
                 return (
                   <Pressable
                     key={it.id}
                     onPress={() => nav.push({ name: 'item', id: it.id })}
                     style={({ pressed }) => [{ width: tileW, gap: 6 }, pressed && { opacity: 0.75 }]}
                     accessibilityRole="button"
-                    accessibilityLabel={`${it.title}${onBadge ? ', on your badge' : ''}${it.favourite ? ', favourite' : ''}`}
+                    accessibilityLabel={`${it.title}${onBadge ? ', showing on your badge' : stored ? ', stored on your badge' : ''}${it.favourite ? ', favourite' : ''}`}
                   >
                     <View>
-                      <ItemThumb app={app} itemId={it.id} width={tileW} orientation={it.scene.orientation} tilt={tiltFor(i)} sticker={onBadge ? 'ON BADGE' : undefined} />
+                      <ItemThumb app={app} itemId={it.id} width={tileW} orientation={it.scene.orientation} tilt={tiltFor(i)} sticker={onBadge ? 'SHOWING' : stored ? 'ON BADGE' : undefined} />
                       {it.favourite && (
                         <View style={{ position: 'absolute', left: 8, top: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: INK.paper, borderWidth: 2, borderColor: INK.black, alignItems: 'center', justifyContent: 'center' }}>
                           <Icon name="heart" size={16} color={INK.red} fill />
@@ -205,6 +206,7 @@ export function ItemScreen({ id }: { id: string }) {
   const o = it.scene.orientation;
   const last = it.sends[it.sends.length - 1];
   const onBadge = badge?.shownItemId === it.id;
+  const stored = !onBadge && !!badge && app.slotOf(badge.id, it.id) !== null;
   const editCopy = () => {
     if (it.template && catalog.get(it.template.id)) {
       const e = catalog.get(it.template.id)!;
@@ -233,13 +235,13 @@ export function ItemScreen({ id }: { id: string }) {
       right={<IconBtn icon="heart" fill={it.favourite} label={it.favourite ? 'Remove from favourites' : 'Add to favourites'} onPress={() => app.library.setFavourite(it.id, !it.favourite)} />}
     >
       <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 6 }}>
-        <ItemThumb app={app} itemId={it.id} width={o === 'portrait' ? Math.min(240, width * 0.6) : width - 70} orientation={o} tilt={-2} shadow={INK.black} device sticker={onBadge ? 'ON BADGE' : undefined} />
+        <ItemThumb app={app} itemId={it.id} width={o === 'portrait' ? Math.min(240, width * 0.6) : width - 70} orientation={o} tilt={-2} shadow={INK.black} device sticker={onBadge ? 'SHOWING' : stored ? 'ON BADGE' : undefined} />
       </View>
       <Col gap={4}>
         <H size={30}>{it.title}</H>
         <Label muted>{it.sends.length ? `Sent ${it.sends.length === 1 ? 'once' : `${it.sends.length} times`}, last ${ago(last.at)}` : 'Not sent yet'}</Label>
       </Col>
-      <Btn kind="primary" label={badge ? `Print to ${badge.name}` : 'Set up a badge to print'} onPress={() => (badge ? nav.push({ name: 'send', itemId: it.id }) : nav.push({ name: 'setup' }))} />
+      <Btn kind="primary" label={badge ? (stored ? `Show on ${badge.name}` : `Print to ${badge.name}`) : 'Set up a badge to print'} onPress={() => (badge ? nav.push({ name: 'send', itemId: it.id }) : nav.push({ name: 'setup' }))} />
       <Row gap={10}>
         <Btn flex label="Edit a copy" onPress={editCopy} />
         <Btn flex label="Add to…" onPress={() => setAdding(true)} />

@@ -63,6 +63,8 @@ export interface SendProgress {
   total: number;
   /** A CRC or write retry is under way. */
   attempt: number;
+  /** The badge already holds this picture: nothing is sent, it is only redrawn. */
+  alreadyThere: boolean;
 }
 
 const ORDER: SendStage[] = ['preparing', 'connecting', 'erasing', 'sending', 'verifying', 'refreshing'];
@@ -74,6 +76,7 @@ export class ProgressTracker {
   private sent = 0;
   private total: number;
   private attempt = 1;
+  private alreadyThere = false;
   private readonly started: Record<string, number> = {};
   private readonly durations: Partial<Record<SendStage, number>> = {};
 
@@ -113,6 +116,12 @@ export class ProgressTracker {
     this.emit();
   }
 
+  /** The picture is already on the badge: erasing, sending and checking are skipped. */
+  skipTransfer() {
+    this.alreadyThere = true;
+    this.emit();
+  }
+
   bytes(sent: number, total = this.total) {
     this.sent = sent;
     this.total = total;
@@ -121,6 +130,7 @@ export class ProgressTracker {
 
   private expected(stage: SendStage): number {
     const T = this.timings;
+    if (this.alreadyThere && (stage === 'erasing' || stage === 'sending' || stage === 'verifying')) return 0;
     switch (stage) {
       case 'preparing':
         return T.preparingMs;
@@ -182,6 +192,7 @@ export class ProgressTracker {
       sent: this.sent,
       total: this.total,
       attempt: this.attempt,
+      alreadyThere: this.alreadyThere,
     };
   }
 

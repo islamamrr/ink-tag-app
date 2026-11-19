@@ -106,13 +106,15 @@ const STEPS: { label: string; stages: SendStage[] }[] = [
 
 export function Stages({ p }: { p: SendProgress | null }) {
   const tx = useText();
-  const at = p ? STEPS.findIndex((x) => x.stages.includes(p.stage)) : 0;
+  // A picture already on the badge isn't sent again: only the first and last steps happen.
+  const steps = p?.alreadyThere ? [STEPS[0], STEPS[3]] : STEPS;
+  const at = p ? steps.findIndex((x) => x.stages.includes(p.stage)) : 0;
   const done = p?.stage === 'done';
   return (
     <Col gap={8}>
-      {STEPS.map((x, i) => {
+      {steps.map((x, i) => {
         const state = done || i < at ? 'done' : i === at ? 'now' : 'later';
-        const label = i === 2 && p?.stage === 'sending' && p.attempt > 1 ? 'Checking again' : x.label;
+        const label = x === STEPS[2] && p?.stage === 'sending' && p.attempt > 1 ? 'Checking again' : x.label;
         return (
           <Row key={x.label} gap={10}>
             <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: tx.sf.fg, alignItems: 'center', justifyContent: 'center', backgroundColor: state === 'done' ? tx.sf.fg : 'transparent', opacity: state === 'later' ? 0.5 : 1 }}>

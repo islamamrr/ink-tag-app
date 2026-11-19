@@ -34,8 +34,27 @@ export interface SavedBadge {
   shownAt?: number;
   /** Last screen check result. */
   screen?: ScreenCheck;
+  /** What the badge's picture slots held when last asked (fw 0.6+). */
+  slots?: BadgeSlots;
   /** A firmware version that failed to start on this badge: not installed again on its own. */
   skipFirmware?: string;
+}
+
+/** One picture on the badge: its slot, and the CRC-32 that says which library picture it is. */
+export interface BadgeSlot {
+  slot: number;
+  crc32: number;
+  /** When this phone last sent or showed it; 0 if unknown. The oldest goes first when the badge is full. */
+  at: number;
+}
+
+export interface BadgeSlots {
+  count: number;
+  /** The used slots only. */
+  entries: BadgeSlot[];
+  /** The slot on the screen, or null. */
+  current: number | null;
+  checkedAt: number;
 }
 
 interface BadgesDoc {

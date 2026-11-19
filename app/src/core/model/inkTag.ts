@@ -16,6 +16,7 @@ import { SCREEN_PALETTE } from '../imaging/palette';
 import { convertFitted, type Converted } from '../imaging/pipeline';
 import type { RgbaImage } from '../imaging/rgba';
 import { type DisplayOutcome, type Log, TagClient } from '../protocol/client';
+import { crc32 } from '../protocol/crc32';
 import { compareVersions } from '../firmware/image';
 import { supportsLock, supportsUpdate, type TagInfo } from '../protocol/codec';
 import { Color, type ColorName, PROTOCOL_VERSION } from '../protocol/constants';
@@ -35,7 +36,7 @@ import { SimLink } from '../sim/simLink';
 import type { FoundBadge } from '../transport/scan';
 import { sleep } from '../util/async';
 import { fromHex, toHex } from '../util/sha256';
-import { BadgeRegistry, type SavedBadge } from './badges';
+import { type BadgeSlots, BadgeRegistry, type SavedBadge } from './badges';
 import { Library, type ItemKind, type LibraryItem, PREVIEW_VERSION } from './library';
 import {
   type FirmwareJob,
@@ -149,6 +150,17 @@ export interface SendResult {
   displayed: Promise<DisplayOutcome>;
 }
 
+/** One picture slot on a badge, as the badge page shows it. */
+export interface SlotView {
+  slot: number;
+  used: boolean;
+  /** On the screen now. */
+  current: boolean;
+  crc32?: number;
+  /** The library picture that is in this slot, if this phone made it. */
+  item?: LibraryItem;
+}
+
 interface Settings {
   timings: Timings;
 }
@@ -170,6 +182,7 @@ export class InkTag {
   private connecting: Promise<unknown> | null = null;
   /** Sends not finished yet (stored and refreshed): no automatic update meanwhile. */
   private sendsInFlight = 0;
+  private readonly slotRefreshes = new Map<string, Promise<void>>();
   private fwJob: FirmwareJob | null = null;
   private fwRun: Promise<FirmwareResult> | null = null;
   private fwCtl: AbortController | null = null;
@@ -360,6 +373,7 @@ export class InkTag {
       await this.badges.update(badge.id, patch);
       await this.badges.setCurrent(badge.id);
       this.setConn({ badgeId: badge.id, status: 'connected', info });
+      void this.refreshSlots(badge.id).catch(() => {});
       this.scheduleAutoUpdate(badge.id);
       return info;
     } catch (e) {
@@ -377,7 +391,7 @@ export class InkTag {
     if (badge.kind === 'demo') {
       let tag = this.demoTags.get(badge.id);
       if (!tag) {
-        tag = new FakeTag({ timing: this.deps.demoTiming ?? 'fast' });
+        tag = new FakeTag({ timing: this.deps.demoTiming ?? 'fast', firmware: [0, 6, 1] });
         this.demoTags.set(badge.id, tag);
       }
       const link = new SimLink(tag, { bytesPerSecond: this.deps.demoTiming === 'instant' ? 0 : 24 * 1024 });
@@ -528,9 +542,10 @@ export class InkTag {
       },
     });
     tracker.enter('preparing');
+    let legacy = false;
     this.sendsInFlight++;
     let settled = false;
-    const settle = () => {
+    const sendDone = () => {
       if (settled) return;
       settled = true;
       this.sendsInFlight--;
@@ -571,18 +586,34 @@ export class InkTag {
       tracker.enter('connecting');
       const client = await this.client(badgeId);
 
-      // 3. Upload: erase, send, verify.
-      const up = await client.upload(frame, {
-        signal: opts.signal,
-        onStage: (s, attempt) => tracker.enter(s, attempt),
-        onProgress: (sent, total) => tracker.bytes(sent, total),
-      });
+      // 3. Where it goes: already on the badge (just redraw it), a slot of its own, or, on
+      //    firmware without slots, over the picture on the screen.
+      const plan = await this.planSlot(badgeId, crc32(frame));
+      let shown: Promise<DisplayOutcome>;
+      if (plan.mode === 'show') {
+        tracker.skipTransfer();
+        tracker.enter('refreshing');
+        this.log('info', `picture already in slot ${plan.slot}, redrawing it`);
+        shown = settle(client.show(plan.slot)).catch((): DisplayOutcome => ({ status: 'unknown', reason: 'disconnected' }));
+        await this.touchSlot(badgeId, plan.slot, crc32(frame), true);
+      } else {
+        // 3b. Upload: erase, send, verify.
+        legacy = plan.mode === 'replace';
+        const up = await client.upload(frame, {
+          signal: opts.signal,
+          slot: plan.mode === 'store' ? plan.slot : undefined,
+          onStage: (s, attempt) => tracker.enter(s, attempt),
+          onProgress: (sent, total) => tracker.bytes(sent, total),
+        });
+        tracker.enter('refreshing');
+        shown = up.displayed;
+        if (plan.mode === 'store') await this.touchSlot(badgeId, plan.slot, crc32(frame), true);
+      }
 
       // 4. Stored: record it, then follow the refresh.
-      tracker.enter('refreshing');
       await this.library.recordSend(item.id, badgeId);
       await this.badges.update(badgeId, { shownItemId: item.id, shownAt: this.now() });
-      const displayed = up.displayed.then(async (outcome) => {
+      const displayed = shown.then(async (outcome) => {
         tracker.enter(outcome.status === 'failed' ? 'failed' : 'done');
         if (outcome.status === 'displayed') {
           this.settings.timings = tracker.learned();
@@ -592,17 +623,135 @@ export class InkTag {
           await this.badges
             .update(badgeId, { screen: checkScreen(this.conn?.info ?? null, outcome, this.now()) })
             .catch(() => {});
+        await this.refreshSlots(badgeId).catch(() => {});
         return outcome;
       });
-      void displayed.finally(settle);
+      void displayed.finally(sendDone);
       return { item, displayed };
     } catch (e) {
-      settle();
+      sendDone();
       tracker.enter('failed');
-      if (e instanceof UploadError && e.badgeBlank)
+      // Only a send over the picture on the screen can leave the badge blank; one into
+      // another slot leaves the screen and the other pictures as they were.
+      if (legacy && e instanceof UploadError && e.badgeBlank)
         await this.badges.update(badgeId, { shownItemId: undefined, shownAt: undefined }).catch(() => {});
       throw e;
     }
+  }
+
+  // ------------------------------------------------------------ picture slots (fw 0.6+)
+
+  /** The badge's picture slots as last read, with the library picture in each; null on firmware with one picture. */
+  badgeSlots(badgeId: string): SlotView[] | null {
+    const saved = this.badges.get(badgeId)?.slots;
+    if (!saved) return null;
+    const items = this.library.list();
+    return Array.from({ length: saved.count }, (_, slot) => {
+      const e = saved.entries.find((x) => x.slot === slot);
+      return {
+        slot,
+        used: !!e,
+        current: saved.current === slot,
+        crc32: e?.crc32,
+        item: e && items.find((i) => i.crc32 === e.crc32),
+      };
+    });
+  }
+
+  /** The slot a library picture is in on this badge, if it is there. */
+  slotOf(badgeId: string, itemId: string): number | null {
+    const crc = this.library.get(itemId)?.crc32;
+    const e = this.badges.get(badgeId)?.slots?.entries.find((x) => x.crc32 === crc);
+    return crc !== undefined && e ? e.slot : null;
+  }
+
+  /** Asks the connected badge what its slots hold. Calls while one is running share it. */
+  refreshSlots(badgeId: string): Promise<void> {
+    const running = this.slotRefreshes.get(badgeId);
+    if (running) return running;
+    const p = this.readSlots(badgeId).finally(() => this.slotRefreshes.delete(badgeId));
+    this.slotRefreshes.set(badgeId, p);
+    return p;
+  }
+
+  private async readSlots(badgeId: string) {
+    const conn = this.conn;
+    if (!conn || conn.badgeId !== badgeId || !conn.client.connected) return;
+    const info = await conn.client.info();
+    conn.info = info;
+    const badge = this.badges.get(badgeId);
+    if (!badge) return;
+    if (!info.slots) {
+      if (badge.slots) await this.badges.update(badgeId, { slots: undefined });
+      return;
+    }
+    const entries: BadgeSlots['entries'] = [];
+    for (let i = 0; i < info.slots.count; i++) {
+      if (!((info.slots.usedMask >> i) & 1)) continue;
+      const s = await conn.client.slot(i);
+      if (!s.used) continue;
+      const old = badge.slots?.entries.find((e) => e.slot === i && e.crc32 === s.crc32);
+      entries.push({ slot: i, crc32: s.crc32, at: old?.at ?? 0 });
+    }
+    await this.badges.update(badgeId, {
+      slots: { count: info.slots.count, entries, current: info.slots.current, checkedAt: this.now() },
+    });
+  }
+
+  /** Remembers a picture was just put in or redrawn from a slot, without waiting for the badge to say so. */
+  private async touchSlot(badgeId: string, slot: number, crc: number, current: boolean) {
+    const saved = this.badges.get(badgeId)?.slots;
+    if (!saved) return;
+    const entries = saved.entries.filter((e) => e.slot !== slot).concat({ slot, crc32: crc, at: this.now() });
+    await this.badges.update(badgeId, {
+      slots: { ...saved, entries, current: current ? slot : saved.current },
+    });
+  }
+
+  /**
+   * Where a picture with this CRC goes: redrawn from the slot it is already
+   * in, put in a free slot or, when all are full, over the one shown longest
+   * ago (never the one on the screen). Firmware without slots, or a badge
+   * that can't be asked, gets the old behaviour: it replaces the picture on the screen.
+   */
+  private async planSlot(
+    badgeId: string,
+    crc: number,
+  ): Promise<{ mode: 'replace' } | { mode: 'show' | 'store'; slot: number }> {
+    if (!this.conn?.info.slots) return { mode: 'replace' };
+    try {
+      await this.refreshSlots(badgeId);
+    } catch {
+      return { mode: 'replace' };
+    }
+    const saved = this.badges.get(badgeId)?.slots;
+    if (!saved) return { mode: 'replace' };
+    const there = saved.entries.find((e) => e.crc32 === crc);
+    if (there) return { mode: 'show', slot: there.slot };
+    return { mode: 'store', slot: pickSlot(saved) };
+  }
+
+  /** Draws the picture in a slot on the screen (no sending). */
+  async showOnBadge(badgeId: string, slot: number): Promise<DisplayOutcome> {
+    const client = await this.client(badgeId);
+    const crc = this.badges.get(badgeId)?.slots?.entries.find((e) => e.slot === slot)?.crc32;
+    const item = crc === undefined ? undefined : this.library.list().find((i) => i.crc32 === crc);
+    const outcome = await settle(client.show(slot));
+    if (outcome.status !== 'failed') {
+      if (crc !== undefined) await this.touchSlot(badgeId, slot, crc, true);
+      await this.badges.update(badgeId, { shownItemId: item?.id, shownAt: this.now() });
+    }
+    await this.badges.update(badgeId, { screen: checkScreen(this.conn?.info ?? null, outcome, this.now()) });
+    await this.refreshSlots(badgeId).catch(() => {});
+    if (outcome.status === 'failed') throw outcome.error;
+    return outcome;
+  }
+
+  /** Empties a slot on the badge. The screen keeps what it shows until the next picture. */
+  async removeFromBadge(badgeId: string, slot: number): Promise<void> {
+    const client = await this.client(badgeId);
+    this.conn!.info = await client.deleteSlot(slot);
+    await this.refreshSlots(badgeId);
   }
 
   /** Redraws the stored picture. */
@@ -854,4 +1003,12 @@ async function settle(p: Promise<number | null>): Promise<DisplayOutcome> {
     if (e instanceof DisconnectedError) return { status: 'unknown', reason: 'disconnected' };
     throw e;
   }
+}
+
+/** A free slot, else the one this phone sent or showed longest ago, never the one on the screen. */
+function pickSlot(saved: BadgeSlots): number {
+  for (let i = 0; i < saved.count; i++) if (!saved.entries.some((e) => e.slot === i)) return i;
+  const others = saved.entries.filter((e) => e.slot !== saved.current);
+  const pool = others.length ? others : saved.entries;
+  return pool.reduce((a, b) => (b.at < a.at || (b.at === a.at && b.slot < a.slot) ? b : a)).slot;
 }

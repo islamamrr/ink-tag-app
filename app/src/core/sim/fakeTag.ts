@@ -46,6 +46,8 @@ export interface FakeTagOptions {
   mtu?: number;
   /** Chip id (Chip.*); reported in INFO from 0.6.1. ESP32-C3 by default. */
   chip?: number;
+  /** Picture slots on a 0.6+ badge (7 like the real one). Fewer makes "full" easy to reach in tests. */
+  slots?: number;
   log?: (line: string) => void;
 }
 
@@ -82,7 +84,31 @@ export class FakeTag {
   authorized = false;
   private nonce: Uint8Array | null = null;
 
-  stored: Uint8Array | null = null;
+  /** The picture slots (fw 0.6+; older firmware has just the first). */
+  slots: (Uint8Array | null)[] = Array.from({ length: SLOT_COUNT }, () => null);
+  /** The slot on the panel, or null. */
+  current: number | null = null;
+  private target = 0;
+  private showAfter = true;
+
+  /** The picture in the current slot, which a badge with one picture simply calls "stored". */
+  get stored(): Uint8Array | null {
+    return this.current === null ? null : this.slots[this.current];
+  }
+  set stored(frame: Uint8Array | null) {
+    if (frame === null) {
+      if (this.current !== null) this.slots[this.current] = null;
+      this.current = null;
+    } else {
+      this.current ??= 0;
+      this.slots[this.current] = frame;
+    }
+  }
+
+  private readonly slotLimit: number;
+  get slotCount() {
+    return this.atLeast(0, 6) ? this.slotLimit : 1;
+  }
   shown: Uint8Array | null = null;
   tempOverride = TEMP_UNKNOWN;
   lastTemp = TEMP_UNKNOWN;
@@ -98,6 +124,7 @@ export class FakeTag {
     this.sensorTemp = opts.sensorTemp ?? 22;
     this.mtu = opts.mtu ?? 247;
     this.chip = opts.chip ?? Chip.ESP32C3;
+    this.slotLimit = Math.min(SLOT_COUNT, opts.slots ?? SLOT_COUNT);
     this.log = opts.log ?? (() => {});
   }
 
@@ -203,16 +230,23 @@ export class FakeTag {
     switch (op) {
       case Cmd.BEGIN: {
         if (cmd.length < 6) return error(1);
+        // Firmware 0.6 takes a slot and flags; without them the picture replaces the current one.
+        const slots = this.atLeast(0, 6);
+        const slot = slots && cmd.length >= 7 ? cmd[6] : (this.current ?? 0);
+        const show = slots && cmd.length >= 8 ? (cmd[7] & 1) !== 0 : true;
+        if (slot >= this.slotCount) return error(ErrorCode.BAD_SLOT);
         if (cmd[1] !== FMT_NATIVE_4BPP) return error(9);
         const length = v.getUint32(2, true);
         if (length !== FRAME_BYTES) return error(2);
         this.receiving = false; // a new BEGIN discards an unfinished upload
-        this.stored = null; // erasing loses the old image, as on the badge
+        this.slots[slot] = null; // erasing loses the old picture in that slot, as on the badge
         await sleep(DELAYS[this.timing].erase);
         this.received = 0;
         this.overflow = false;
+        this.target = slot;
+        this.showAfter = show;
         this.receiving = true;
-        this.log(`I inktag: receiving ${length} bytes`);
+        this.log(`I inktag: receiving ${length} bytes into slot ${slot}`);
         return notify(Uint8Array.of(Evt.READY, 0));
       }
       case Cmd.END: {
@@ -229,14 +263,35 @@ export class FakeTag {
           this.log(`E store: CRC mismatch, computed ${crc.toString(16).padStart(8, '0')}`);
           return error(5);
         }
-        this.stored = this.buf.slice();
+        const slot = this.target;
+        this.slots[slot] = this.buf.slice();
         notify(Uint8Array.of(Evt.RECEIVED, 0));
-        return (await this.refresh(this.stored)) ? displayed() : error(7);
+        if (!this.showAfter) return notify(this.slotEvent(slot));
+        this.current = slot;
+        return (await this.refresh(this.slots[slot]!)) ? displayed() : error(7);
       }
-      case Cmd.SHOW:
+      case Cmd.SHOW: {
         if (this.receiving) return error(3);
-        if (!this.stored) return error(8);
-        return (await this.refresh(this.stored)) ? displayed() : error(7);
+        const slot = this.atLeast(0, 6) && cmd.length >= 2 ? cmd[1] : this.current;
+        if (slot !== null && slot >= this.slotCount) return error(ErrorCode.BAD_SLOT);
+        const frame = slot === null ? null : this.slots[slot];
+        if (slot === null || !frame) return error(8);
+        this.current = slot;
+        return (await this.refresh(frame)) ? displayed() : error(7);
+      }
+      case Cmd.DELETE: {
+        if (!this.atLeast(0, 6) || cmd.length < 2) return error(1);
+        if (cmd[1] >= this.slotCount) return error(ErrorCode.BAD_SLOT);
+        if (this.receiving) return error(3);
+        this.slots[cmd[1]] = null;
+        if (this.current === cmd[1]) this.current = null;
+        this.log(`I store: slot ${cmd[1]} emptied`);
+        return notify(this.info());
+      }
+      case Cmd.SLOT:
+        if (!this.atLeast(0, 6) || cmd.length < 2) return error(1);
+        if (cmd[1] >= this.slotCount) return error(ErrorCode.BAD_SLOT);
+        return notify(this.slotEvent(cmd[1]));
       case Cmd.CLEAR: {
         if (this.receiving) return error(3);
         const c = cmd.length > 1 ? cmd[1] & 0x0f : 1;
@@ -339,6 +394,16 @@ export class FakeTag {
     }
   }
 
+  private slotEvent(slot: number): Uint8Array {
+    const frame = this.slots[slot];
+    const b = new Uint8Array(13);
+    b.set([Evt.SLOT, 0, slot, frame ? 1 : 0, frame ? FMT_NATIVE_4BPP : 0]);
+    const v = new DataView(b.buffer);
+    v.setUint32(5, frame ? FRAME_BYTES : 0, true);
+    v.setUint32(9, frame ? crc32(frame) : 0, true);
+    return b;
+  }
+
   private stopUpdate() {
     this.updating = false;
     this.update = null;
@@ -387,10 +452,9 @@ export class FakeTag {
     if (size >= 21) b.set(this.panelId, 18);
     if (size >= 22) b[21] = (this.ownerKey ? 1 : 0) | (this.authorized || !this.ownerKey ? 2 : 0);
     if (size >= 30) {
-      // One picture, kept in slot 0 (the simulation doesn't model slots yet).
-      b[22] = SLOT_COUNT;
-      b[23] = this.stored ? 1 : 0;
-      b[24] = this.stored ? 0 : 0xff;
+      b[22] = this.slotCount;
+      b[23] = this.slots.reduce((m, f, i) => (f && i < this.slotCount ? m | (1 << i) : m), 0);
+      b[24] = this.current ?? 0xff;
       b[25] = (this.runningSlot ? UPDATE_RUNNING_SLOT1 : 0) | (this.rolledBack ? UPDATE_ROLLED_BACK : 0);
       v.setUint32(26, FAKE_MAX_FIRMWARE, true);
     }

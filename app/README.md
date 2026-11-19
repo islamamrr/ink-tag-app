@@ -127,6 +127,7 @@ plain TypeScript and tested against simulated badges.
 | Add a badge by scanning, nearest first, in plain words | `InkTag.scan()`, `addBadge()`; `model/proximity.ts` |
 | Remembers it and reconnects at launch | `model/badges.ts` (saved in `badges.json`), `InkTag.reconnect()` |
 | Lock to my phone | `InkTag.addBadge({ lock })`, `setLocked()`, `forget()`; `TagClient.lock/authenticate/unlock`; firmware 0.4 |
+| Several pictures kept on the badge; switching is only a redraw | `InkTag.send()` (already there: redraw; new: a free slot, else the one shown longest ago), `badgeSlots()`, `showOnBadge()`, `removeFromBadge()`, `TagClient.slot/deleteSlot/show(slot)`; firmware 0.6 |
 | Badge firmware updates, on their own when the badge is idle | `assets/firmware` (from `node tools/bundle_firmware.mjs`), `model/firmware.ts`, `InkTag.updateFirmware()`, `TagClient.updateFirmware()`; firmware 0.6 |
 | Several badges per phone, each with its name, use and how it hangs | `BadgeRegistry`; `rename()`, `setUse()`, `setOrientation()` |
 | Demo mode | `InkTag.addDemoBadge()`: a FakeTag behind the same service |

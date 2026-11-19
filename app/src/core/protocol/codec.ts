@@ -18,12 +18,29 @@ import {
   UPDATE_RUNNING_SLOT1,
 } from './constants';
 
-export const encodeBegin = (length: number, format: number = FMT_NATIVE_4BPP): Uint8Array => {
-  const b = new Uint8Array(6);
+/** BEGIN flags (fw 0.6+): draw the picture once it has arrived. */
+export const BEGIN_SHOW = 0x01;
+
+/**
+ * Without a slot the badge replaces the picture it shows (and draws it).
+ * With one (fw 0.6+) the picture goes to that slot, and is drawn unless
+ * `show` is false.
+ */
+export const encodeBegin = (
+  length: number,
+  format: number = FMT_NATIVE_4BPP,
+  slot?: number,
+  show = true,
+): Uint8Array => {
+  const b = new Uint8Array(slot === undefined ? 6 : 8);
   const v = new DataView(b.buffer);
   b[0] = Cmd.BEGIN;
   b[1] = format;
   v.setUint32(2, length, true);
+  if (slot !== undefined) {
+    b[6] = slot;
+    b[7] = show ? BEGIN_SHOW : 0;
+  }
   return b;
 };
 
@@ -34,7 +51,9 @@ export const encodeEnd = (crc32: number): Uint8Array => {
   return b;
 };
 
-export const encodeShow = () => Uint8Array.of(Cmd.SHOW);
+/** Redraws the picture in `slot` (fw 0.6+), or the current one. */
+export const encodeShow = (slot?: number) =>
+  slot === undefined ? Uint8Array.of(Cmd.SHOW) : Uint8Array.of(Cmd.SHOW, slot & 0xff);
 export const encodeClear = (color: number) => Uint8Array.of(Cmd.CLEAR, color & 0xff);
 export const encodeInfo = () => Uint8Array.of(Cmd.INFO);
 export const encodeAbort = () => Uint8Array.of(Cmd.ABORT);
@@ -95,6 +114,22 @@ export interface TagInfo {
   slots?: SlotsState;
   /** undefined: firmware older than 0.6, which can't update over Bluetooth. */
   update?: UpdateState;
+}
+
+/** What the badge says one picture slot holds. */
+export interface SlotInfo {
+  slot: number;
+  used: boolean;
+  format: number;
+  length: number;
+  /** CRC-32 of the stored frame: the same number the library keeps for each picture. */
+  crc32: number;
+}
+
+export function parseSlot(data: Uint8Array): SlotInfo {
+  if (data.length < 13 || data[0] !== Evt.SLOT) throw new Error(`malformed SLOT (${data.length} bytes)`);
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return { slot: data[2], used: data[3] !== 0, format: data[4], length: v.getUint32(5, true), crc32: v.getUint32(9, true) };
 }
 
 export interface SlotsState {
@@ -189,7 +224,8 @@ export function describeCommand(data: Uint8Array): string {
   const name = COMMAND_NAMES[data[0]] ?? `0x${data[0]?.toString(16)}`;
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
   if (data[0] === Cmd.BEGIN && data.length >= 6)
-    return `${name} format ${data[1]}, ${v.getUint32(2, true)} bytes`;
+    return `${name} format ${data[1]}, ${v.getUint32(2, true)} bytes${data.length >= 8 ? `, slot ${data[6]}${data[7] & BEGIN_SHOW ? '' : ', not drawn'}` : ''}`;
+  if (data[0] === Cmd.SHOW && data.length >= 2) return `${name} slot ${data[1]}`;
   if (data[0] === Cmd.END && data.length >= 5)
     return `${name} crc32 ${v.getUint32(1, true).toString(16).padStart(8, '0')}`;
   if (data[0] === Cmd.CLEAR && data.length >= 2) return `${name} ${data[1]}`;
@@ -212,6 +248,10 @@ export function describeEvent(data: Uint8Array): string {
   if (data[0] === Evt.ERROR) {
     const cmd = data.length > 2 ? (COMMAND_NAMES[data[2]] ?? data[2]) : '?';
     return `${name} ${ERROR_NAMES[data[1]] ?? data[1]} (command ${cmd})`;
+  }
+  if (data[0] === Evt.SLOT && data.length >= 13) {
+    const sl = parseSlot(data);
+    return `${name} ${sl.slot}: ${sl.used ? `${sl.length} bytes, crc32 ${sl.crc32.toString(16).padStart(8, '0')}` : 'empty'}`;
   }
   if (data[0] === Evt.DISPLAYED && data.length >= 3) {
     const t = i8(data[2]);

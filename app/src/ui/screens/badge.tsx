@@ -3,10 +3,10 @@
 // setup screens (Bluetooth, find, set up), with help when nothing is found.
 
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Easing, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Animated, Easing, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
-import { LockedError, type NearbyBadge, type Orientation, userMessage } from '../../core';
-import { Btn, Card, Chip, Col, Field, Group, H, Label, ListRow, Meta, Problem, Row, Screen, Sheet, T, ToggleRow, useText, Wordmark } from '../kit';
+import { LockedError, type NearbyBadge, type Orientation, type SlotView, userMessage } from '../../core';
+import { Btn, Card, Chip, Col, Field, Group, H, Label, ListRow, Meta, Problem, Row, Screen, Section, Sheet, T, ToggleRow, useText, Wordmark } from '../kit';
 import { useNav } from '../nav';
 import { FirmwareLine } from '../firmware';
 import { BadgeFrame, ItemThumb, TemplateThumb } from '../pictures';
@@ -216,6 +216,14 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
         </Col>
       </Row>
 
+      <OnTheBadge
+        slots={app.badgeSlots(id)}
+        orientation={b.orientation}
+        busy={!!busy}
+        onShow={(slot) => run('show', () => app.showOnBadge(id, slot), 'Drawing it on the badge.')}
+        onDelete={(slot) => run('delete', () => app.removeFromBadge(id, slot), 'Taken off the badge. It is still in your Gallery.')}
+      />
+
       <Row gap={8}>
         <Btn flex small icon="redraw" label="Redraw" busy={busy === 'redraw'} disabled={!!busy} onPress={() => run('redraw', () => app.redraw(id), 'Redrawn.')} />
         <Btn flex small icon="pulse" label="Check" busy={busy === 'check'} disabled={!!busy} onPress={() => run('check', async () => setNotice((await app.checkScreen(id)).message))} />
@@ -266,6 +274,66 @@ export function BadgePage({ id, root }: { id: string; root?: boolean }) {
         />
       </Sheet>
     </Screen>
+  );
+}
+
+/** The pictures the badge keeps (firmware 0.6+): tap one to draw it, or take it off the badge. */
+function OnTheBadge({
+  slots,
+  orientation,
+  busy,
+  onShow,
+  onDelete,
+}: {
+  slots: SlotView[] | null;
+  orientation: Orientation;
+  busy: boolean;
+  onShow: (slot: number) => void;
+  onDelete: (slot: number) => void;
+}) {
+  const { app } = useServices();
+  const tx = useText();
+  if (!slots) return null;
+  const used = slots.filter((x) => x.used);
+  const pick = (x: SlotView) => {
+    const title = x.item?.title ?? 'A picture from somewhere else';
+    Alert.alert(title, x.current ? 'It is on the screen now.' : 'It is stored on the badge.', [
+      { text: 'Cancel', style: 'cancel' },
+      ...(x.current ? [] : [{ text: 'Show on the badge', onPress: () => onShow(x.slot) }]),
+      { text: 'Take off the badge', style: 'destructive' as const, onPress: () => onDelete(x.slot) },
+    ]);
+  };
+  return (
+    <Col gap={8}>
+      <Section title="On the badge" />
+      <T muted>
+        {used.length === 0
+          ? 'Nothing stored yet. Pictures you send stay on the badge, so switching between them is quick.'
+          : `${used.length} of ${slots.length} pictures. Tap one to draw it without sending it again.`}
+      </T>
+      {used.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingVertical: 8, paddingRight: 8 }}>
+          {used.map((x, i) => (
+            <Pressable
+              key={x.slot}
+              disabled={busy}
+              onPress={() => pick(x)}
+              accessibilityRole="button"
+              accessibilityLabel={`${x.item?.title ?? 'A picture from somewhere else'}${x.current ? ', on the screen' : ''}`}
+              style={({ pressed }) => [{ opacity: busy ? 0.5 : pressed ? 0.75 : 1 }]}
+            >
+              {x.item ? (
+                <ItemThumb app={app} itemId={x.item.id} width={78} orientation={x.item.scene.orientation} tilt={tiltFor(i)} sticker={x.current ? 'SHOWING' : undefined} />
+              ) : (
+                <BadgeFrame width={78} orientation={orientation} tilt={tiltFor(i)} sticker={x.current ? 'SHOWING' : undefined} style={{ backgroundColor: INK.paper, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={[tx.strong, { fontSize: 22 }]}>?</Text>
+                </BadgeFrame>
+              )}
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+    </Col>
   );
 }
 
