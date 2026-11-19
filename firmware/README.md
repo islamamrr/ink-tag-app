@@ -4,7 +4,7 @@ ESP-IDF firmware for the Ink Tag badge: an ESP32 receives pictures from a phone 
 
 Built with **ESP-IDF v5.4.1** for the **ESP32-C6** (the B2 product board) and the **ESP32-C3** (SuperMini dev boards); both compile without warnings. 0.6 hasn't run on a badge yet. Firmware 0.4 adds the lock (`main/lock.c`), 0.5 an experimental window test (below), and 0.6 the launch foundation: wireless updates with rollback, seven picture slots, and the B2 board's pins.
 
-**Moving a badge from 0.5 or older to 0.6 needs one flash over USB**, because the flash layout changed (below). After that, updates go over Bluetooth. The stored picture is lost in the move (the badge draws its colour bands once); the owner key is kept.
+**Moving a badge from 0.5 or older to 0.6 needs one flash over USB**, because the flash layout changed (below). After that, updates go over Bluetooth. The stored picture and the owner key are lost in the move: the merged image covers the NVS area with blank bytes, so the badge draws its colour bands once and has to be added in the app again. Updates after that go over Bluetooth and keep both.
 
 ## Layout
 
