@@ -35,6 +35,28 @@ export const FONT = {
   monoBold: 'SpaceMono-Bold',
 } as const;
 
+/**
+ * The only type sizes the app uses. Display is Rubik Mono One, heading and
+ * body Darker Grotesque, label Space Mono caps.
+ */
+export const TYPE = {
+  displayL: 30,
+  displayM: 24,
+  displayS: 18,
+  headingL: 26,
+  headingM: 22,
+  body: 18,
+  small: 16,
+  label: 12,
+  labelS: 10,
+} as const;
+
+/** The only gaps and paddings. The screen's side padding is 20. */
+export const SPACE = { xs: 4, s: 8, m: 12, l: 16, side: 20, xl: 24, xxl: 32 } as const;
+
+/** Hard shadows: cards and prints sit on black, selected chips and tabs on blue. */
+export const SHADOW = { card: 4, chipX: 3, chipY: 2 } as const;
+
 /** The inks a screen can flood with. */
 export type Flood = 'red' | 'yellow' | 'blue' | 'green';
 const FLOODS: Flood[] = ['red', 'yellow', 'blue', 'green'];
@@ -100,12 +122,13 @@ export function mainInk(shares: Shares | null | undefined, fallback: Flood = 'bl
   return best ?? fallback;
 }
 
-/** "GREEN + RED", "MOSTLY RED", or "BLACK + WHITE": the inks a picture prints with. */
+/** "GREEN + RED", "YELLOW + BLUE + RED", "MOSTLY RED", or "BLACK + WHITE": the inks a picture prints with. */
 export function inkLine(shares: Shares | null | undefined): string {
   if (!shares) return '';
   const used = FLOODS.filter((f) => (shares[f] ?? 0) >= 0.03).sort((a, b) => (shares[b] ?? 0) - (shares[a] ?? 0));
   if (used.length === 0) return 'BLACK + WHITE';
   if (used.length === 1 || (shares[used[0]] ?? 0) > 3 * (shares[used[1]] ?? 0)) return `MOSTLY ${used[0].toUpperCase()}`;
+  if (used.length >= 3 && (shares[used[2]] ?? 0) >= 0.08) return `${used[0]} + ${used[1]} + ${used[2]}`.toUpperCase();
   return `${used[0]} + ${used[1]}`.toUpperCase();
 }
 

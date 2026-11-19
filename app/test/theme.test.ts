@@ -18,6 +18,8 @@ describe('inkLine', () => {
   it('names the inks a picture prints with', () => {
     expect(inkLine({ green: 0.3, red: 0.2, white: 0.5 })).toBe('GREEN + RED');
     expect(inkLine({ red: 0.6, yellow: 0.05, white: 0.35 })).toBe('MOSTLY RED');
+    expect(inkLine({ yellow: 0.4, blue: 0.2, red: 0.15, white: 0.25 })).toBe('YELLOW + BLUE + RED');
+    expect(inkLine({ green: 0.3, red: 0.2, blue: 0.04, white: 0.46 })).toBe('GREEN + RED');
     expect(inkLine({ black: 0.5, white: 0.5 })).toBe('BLACK + WHITE');
     expect(inkLine(null)).toBe('');
   });

@@ -14,7 +14,7 @@
     "android": {
       "package": "dev.inktag.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#2A55D9",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -62,6 +62,16 @@
         "projectId": "bdc8bc26-dc9c-4fc3-96ef-849a40aa4ec7"
       }
     },
-    "owner": "iamrdev33"
+    "owner": "iamrdev33",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/bdc8bc26-dc9c-4fc3-96ef-849a40aa4ec7",
+      "requestHeaders": {
+        "expo-channel-name": "preview"
+      },
+      "checkAutomatically": "ON_LOAD"
+    }
   }
 }

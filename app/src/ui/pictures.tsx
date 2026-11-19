@@ -3,9 +3,9 @@
 // saved thumbnails, and template thumbnails drawn from sample content. Each
 // sits in a print frame: black outline, hard shadow, a slight tilt.
 
-import { Canvas, Image as SkiaImage, type SkImage } from '@shopify/react-native-skia';
-import { useEffect, useMemo, useState } from 'react';
-import { Image, Text, View, type ViewStyle } from 'react-native';
+import { type SkImage } from '@shopify/react-native-skia';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Text, View, type ViewStyle } from 'react-native';
 
 import { type CatalogEntry, type Design, type InkTag, type Orientation, type Prepared, toBase64 } from '../core';
 import { templateDesign } from '../services/app';
@@ -22,10 +22,18 @@ export interface PrintLook {
   shadow?: string;
   /** A sticker on the corner ("ON BADGE"). */
   sticker?: string;
+  /** Show it on the drawn badge (bezel, lanyard slot) instead of as a bare print. For hero pictures. */
+  device?: boolean;
 }
 
 /** The badge's outline around a picture, at its real 2:3 (or 3:2) shape, as a print. */
-export function BadgeFrame({ width, orientation, children, bold, style, tilt = 0, shadow, sticker }: { width: number; orientation: Orientation; children?: React.ReactNode; bold?: boolean; style?: ViewStyle } & PrintLook) {
+export function BadgeFrame({ width, orientation, children, bold, style, tilt = 0, shadow, sticker, device }: { width: number; orientation: Orientation; children?: React.ReactNode; bold?: boolean; style?: ViewStyle } & PrintLook) {
+  if (device)
+    return (
+      <BadgeDevice width={width} orientation={orientation} tilt={tilt} shadow={shadow} sticker={sticker} style={style}>
+        {children}
+      </BadgeDevice>
+    );
   const big = width > 160;
   const off = big ? 6 : 4;
   return (
@@ -41,17 +49,79 @@ export function BadgeFrame({ width, orientation, children, bold, style, tilt = 0
   );
 }
 
-function SkiaFill({ image }: { image: SkImage }) {
-  const [size, setSize] = useState({ w: 0, h: 0 });
+// The drawn badge. Generic for now: match these to the real enclosure.
+/** Side bezel, as a share of the device's width. */
+export const DEVICE_BEZEL = 0.055;
+/** Top bezel (holds the lanyard slot), as a multiple of the side bezel. */
+export const DEVICE_TOP = 2.6;
+/** Corner radius, as a share of the device's width. */
+export const DEVICE_RADIUS = 0.07;
+/** The lanyard clip above the body, as shares of the device's width. */
+export const DEVICE_CLIP = { width: 0.2, height: 0.09 };
+
+/**
+ * The badge itself: the picture on its screen inside a paper-white body with
+ * rounded corners, a punched lanyard slot and a clip above it, black outline
+ * and a hard shadow. Used where one picture is the hero; grids keep the bare
+ * BadgeFrame. `width` is the body's width.
+ */
+export function BadgeDevice({ width, orientation, children, tilt = 0, shadow = INK.black, sticker, style }: { width: number; orientation: Orientation; children?: React.ReactNode; style?: ViewStyle } & PrintLook) {
+  const bezel = Math.max(3, Math.round(width * DEVICE_BEZEL));
+  const top = Math.round(bezel * DEVICE_TOP);
+  const radius = Math.round(width * DEVICE_RADIUS);
+  const screenW = width - bezel * 2;
+  const slotW = Math.round(width * 0.26);
+  const slotH = Math.max(4, Math.round(top * 0.26));
+  const clipW = Math.round(width * DEVICE_CLIP.width);
+  const clipH = Math.max(6, Math.round(width * DEVICE_CLIP.height));
+  const off = width > 160 ? 5 : width > 80 ? 4 : 3;
+  const line = width > 80 ? 2 : 1.5;
   return (
-    <View style={{ flex: 1 }} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
-      {size.w > 0 && (
-        <Canvas style={{ width: size.w, height: size.h }}>
-          <SkiaImage image={image} x={0} y={0} width={size.w} height={size.h} fit="fill" />
-        </Canvas>
+    <View style={{ width, paddingTop: clipH, transform: tilt ? [{ rotate: `${tilt}deg` }] : undefined }}>
+      {shadow && <View style={{ position: 'absolute', left: off, top: clipH + off, right: -off, bottom: -off, borderRadius: radius, backgroundColor: shadow }} />}
+      {/* The clip: a metal tab with a ring, through the slot. */}
+      <View style={{ position: 'absolute', top: 0, left: (width - clipW) / 2, width: clipW, height: clipH + top * 0.55, borderRadius: clipW * 0.18, borderWidth: line, borderColor: INK.black, backgroundColor: INK.paper, alignItems: 'center', paddingTop: clipH * 0.22 }}>
+        <View style={{ width: clipW * 0.38, height: clipH * 0.42, borderRadius: clipH, borderWidth: line, borderColor: INK.black, backgroundColor: INK.white }} />
+      </View>
+      <View style={{ backgroundColor: INK.white, borderWidth: line, borderColor: INK.black, borderRadius: radius, paddingHorizontal: bezel - line, paddingTop: top - line, paddingBottom: bezel - line }}>
+        <View style={{ position: 'absolute', top: Math.round((top - slotH) * 0.45) - line, left: (width - slotW) / 2 - line, width: slotW, height: slotH, borderRadius: slotH / 2, backgroundColor: INK.black }} />
+        <View style={[{ width: screenW - 0.01, aspectRatio: ratio(orientation), borderWidth: 1, borderColor: INK.black, overflow: 'hidden', backgroundColor: INK.paper }, style]}>{children}</View>
+      </View>
+      {sticker && (
+        <View style={{ position: 'absolute', right: -6, top: clipH + top, backgroundColor: INK.red, borderWidth: 2, borderColor: INK.black, paddingHorizontal: 7, paddingVertical: 2, transform: [{ rotate: '4deg' }] }}>
+          <Text style={{ fontFamily: 'SpaceMono-Bold', fontSize: 10, color: INK.paper }}>{sticker}</Text>
+        </View>
       )}
     </View>
   );
+}
+
+/** A picture filling its frame, fading in when it arrives (or changes from nothing). */
+function FadeImage({ uri }: { uri: string }) {
+  const [fade] = useState(() => new Animated.Value(0));
+  const seen = useRef(false);
+  useEffect(() => {
+    if (seen.current) return;
+    seen.current = true;
+    Animated.timing(fade, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+  }, [fade]);
+  return <Animated.Image source={{ uri }} style={{ flex: 1, opacity: fade }} resizeMode="stretch" fadeDuration={0} accessibilityIgnoresInvertColors />;
+}
+
+/** PNG data URIs for drawn pictures, so no screen needs a live Skia canvas per picture. */
+const uris = new WeakMap<SkImage, string>();
+function uriFor(image: SkImage) {
+  let u = uris.get(image);
+  if (!u) {
+    u = `data:image/png;base64,${image.encodeToBase64()}`;
+    uris.set(image, u);
+  }
+  return u;
+}
+
+function SkiaFill({ image }: { image: SkImage }) {
+  const uri = useMemo(() => uriFor(image), [image]);
+  return <FadeImage uri={uri} />;
 }
 
 /** Draws and dithers a design shortly after it changes. */
@@ -90,7 +160,7 @@ export function DesignPreview({
   orientation: Orientation;
   show?: 'badge' | 'photo';
 } & PrintLook) {
-  const img = useMemo(() => (prepared ? toSkImage(show === 'badge' ? prepared.converted.preview : prepared.rendered) : null), [prepared, show]);
+  const img = useMemo(() => (prepared ? toSkImage(show === 'badge' ? prepared.converted.display : prepared.rendered) : null), [prepared, show]);
   return (
     <BadgeFrame width={width} orientation={orientation} {...look}>
       {img ? <SkiaFill image={img} /> : <Placeholder style={{ flex: 1 }} label="Drawing…" />}
@@ -120,7 +190,7 @@ export function ItemThumb({ app, itemId, width, orientation, bold, ...look }: { 
   useEffect(() => {
     if (thumbCache.has(itemId)) return;
     let live = true;
-    app.library.preview(itemId).then((b) => {
+    app.thumbnail(itemId).then((b) => {
       if (!b) return;
       const u = `data:image/png;base64,${toBase64(b)}`;
       thumbCache.set(itemId, u);
@@ -133,7 +203,7 @@ export function ItemThumb({ app, itemId, width, orientation, bold, ...look }: { 
   const o = app.library.get(itemId)?.scene.orientation ?? orientation;
   return (
     <BadgeFrame width={width} orientation={o} bold={bold} {...look}>
-      {uri ? <Image source={{ uri }} style={{ flex: 1 }} resizeMode="cover" accessibilityIgnoresInvertColors /> : <Placeholder style={{ flex: 1 }} />}
+      {uri ? <FadeImage uri={uri} /> : <Placeholder style={{ flex: 1 }} />}
     </BadgeFrame>
   );
 }
@@ -162,7 +232,7 @@ function drawTemplate(app: InkTag, e: CatalogEntry, orientation: Orientation, la
       try {
         const design = templateDesign(e, e.sample, { layout, orientation });
         const p = await app.prepare(design);
-        img = toSkImage(p.converted.preview);
+        img = toSkImage(p.converted.display);
         if (img) tplCache.set(key, img);
         if (!tplShares.has(e.id)) {
           tplShares.set(e.id, p.converted.shares);

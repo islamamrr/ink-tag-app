@@ -28,7 +28,12 @@ export interface LibraryItem {
   sends: { badgeId: string; at: number }[];
   /** CRC-32 of the frame, to spot duplicates. */
   crc32: number;
+  /** Which colours the preview PNG was painted in; see PREVIEW_VERSION. Missing on items saved before it. */
+  previewVersion?: number;
 }
+
+/** 2: previews in the app's bright screen inks (SCREEN_PALETTE). 1 (or none): the measured panel colours. */
+export const PREVIEW_VERSION = 2;
 
 export interface Collection {
   id: string;
@@ -128,6 +133,15 @@ export class Library {
 
   preview(id: string) {
     return this.storage.readBytes(previewPath(id));
+  }
+
+  /** Replaces an item's preview (an older one painted in the dull panel colours). */
+  async setPreview(id: string, preview: Uint8Array, version = PREVIEW_VERSION) {
+    const item = this.doc.items.find((i) => i.id === id);
+    if (!item) return;
+    await this.storage.writeBytes(previewPath(id), preview);
+    item.previewVersion = version;
+    await this.persist();
   }
 
   collections(): Collection[] {

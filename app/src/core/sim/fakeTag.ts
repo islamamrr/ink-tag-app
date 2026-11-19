@@ -4,10 +4,13 @@
 // then notifies READY, data outside an upload is dropped, END checks length
 // and CRC, then RECEIVED, a refresh, and DISPLAYED.
 
+import { compareVersions, parseFirmwareImage } from '../firmware/image';
 import { lockAnswer } from '../protocol/client';
 import { crc32 } from '../protocol/crc32';
 import {
+  Chip,
   Cmd,
+  ErrorCode,
   Evt,
   FMT_NATIVE_4BPP,
   FRAME_BYTES,
@@ -16,16 +19,23 @@ import {
   PANEL_WIDTH,
   PROTOCOL_VERSION,
   TEMP_UNKNOWN,
+  UPDATE_ROLLED_BACK,
+  UPDATE_RUNNING_SLOT1,
 } from '../protocol/constants';
 import { sleep } from '../util/async';
 
 export type Timing = 'instant' | 'fast' | 'realistic';
 
-const DELAYS: Record<Timing, { erase: number; refresh: number; coldRefresh: number }> = {
-  instant: { erase: 0, refresh: 5, coldRefresh: 5 },
-  fast: { erase: 600, refresh: 3_000, coldRefresh: 3_000 },
-  realistic: { erase: 2_000, refresh: 30_000, coldRefresh: 45_000 },
+const DELAYS: Record<Timing, { erase: number; refresh: number; coldRefresh: number; restart: number }> = {
+  instant: { erase: 0, refresh: 5, coldRefresh: 5, restart: 5 },
+  fast: { erase: 600, refresh: 3_000, coldRefresh: 3_000, restart: 500 },
+  realistic: { erase: 2_000, refresh: 30_000, coldRefresh: 45_000, restart: 500 },
 };
+
+/** The app partition size on the badge (firmware/partitions.csv). */
+export const FAKE_MAX_FIRMWARE = 0x130000;
+/** Picture slots a 0.6 badge reports. */
+const SLOT_COUNT = 7;
 
 export interface FakeTagOptions {
   timing?: Timing;
@@ -34,6 +44,8 @@ export interface FakeTagOptions {
   panelId?: Uint8Array;
   sensorTemp?: number;
   mtu?: number;
+  /** Chip id (Chip.*); reported in INFO from 0.6.1. ESP32-C3 by default. */
+  chip?: number;
   log?: (line: string) => void;
 }
 
@@ -52,6 +64,17 @@ export class FakeTag {
   corruptNextUpload = false;
   /** Fail the next refresh with "panel timeout", as a badge without a panel does. */
   failNextRefresh = false;
+  /** The next installed firmware crashes at boot: the badge rolls back to the old one. */
+  failNextBoot = false;
+
+  chip: number;
+  /** Firmware updates (0.6+): which app slot runs, and whether the last update rolled back. */
+  runningSlot: 0 | 1 = 0;
+  rolledBack = false;
+  /** Called when the badge restarts after an update; SimLink drops the connection. */
+  onRestart: (() => void) | null = null;
+  private updating = false;
+  private update: Uint8Array | null = null;
 
   /** Owner key (fw 0.4+), kept across connections like the badge's NVS. */
   ownerKey: Uint8Array | null = null;
@@ -74,12 +97,12 @@ export class FakeTag {
     this.panelId = opts.panelId ?? Uint8Array.of(0x00, 0x00, 0x66);
     this.sensorTemp = opts.sensorTemp ?? 22;
     this.mtu = opts.mtu ?? 247;
+    this.chip = opts.chip ?? Chip.ESP32C3;
     this.log = opts.log ?? (() => {});
   }
 
-  private atLeast(major: number, minor: number) {
-    const [ma, mi] = this.firmware;
-    return ma > major || (ma === major && mi >= minor);
+  private atLeast(major: number, minor: number, patch = 0) {
+    return compareVersions(this.firmware, [major, minor, patch]) >= 0;
   }
 
   private readTemp() {
@@ -112,6 +135,15 @@ export class FakeTag {
 
   /** A write to the Data characteristic. */
   data(chunk: Uint8Array) {
+    if (this.updating && this.update) {
+      if (this.received + chunk.length > this.update.length) {
+        this.overflow = true;
+        return;
+      }
+      this.update.set(chunk, this.received);
+      this.received += chunk.length;
+      return;
+    }
     if (!this.receiving) return;
     if (this.received + chunk.length > FRAME_BYTES) {
       this.overflow = true;
@@ -130,6 +162,7 @@ export class FakeTag {
   /** The link dropped: an upload in progress is cancelled, as on the badge. */
   disconnected() {
     this.receiving = false;
+    this.stopUpdate();
     this.authorized = false;
     this.nonce = null;
   }
@@ -153,7 +186,18 @@ export class FakeTag {
 
     const hasLock = this.atLeast(0, 4);
     const open = !this.ownerKey || this.authorized;
-    const gated = [Cmd.BEGIN, Cmd.END, Cmd.SHOW, Cmd.CLEAR, Cmd.TEMP, Cmd.LOCK, Cmd.UNLOCK];
+    const gated = [
+      Cmd.BEGIN,
+      Cmd.END,
+      Cmd.SHOW,
+      Cmd.CLEAR,
+      Cmd.TEMP,
+      Cmd.LOCK,
+      Cmd.UNLOCK,
+      Cmd.DELETE,
+      Cmd.UPDATE_BEGIN,
+      Cmd.UPDATE_END,
+    ];
     if (hasLock && !open && (gated as number[]).includes(op)) return error(10);
 
     switch (op) {
@@ -204,6 +248,7 @@ export class FakeTag {
         return notify(this.info());
       case Cmd.ABORT:
         this.receiving = false;
+        this.stopUpdate();
         this.log('I inktag: upload aborted');
         return;
       case Cmd.TEMP:
@@ -253,13 +298,82 @@ export class FakeTag {
         this.ownerKey = null;
         this.log('I lock: owner key erased');
         return notify(this.info());
+      case Cmd.UPDATE_BEGIN: {
+        if (!this.atLeast(0, 6) || cmd.length < 5) return error(ErrorCode.BAD_COMMAND);
+        const size = v.getUint32(1, true);
+        if (size === 0 || size > FAKE_MAX_FIRMWARE) return error(ErrorCode.BAD_LENGTH);
+        this.receiving = false;
+        this.stopUpdate();
+        await sleep(DELAYS[this.timing].erase);
+        this.update = new Uint8Array(size);
+        this.received = 0;
+        this.overflow = false;
+        this.updating = true;
+        this.log(`I inktag: receiving a ${size}-byte firmware update`);
+        return notify(Uint8Array.of(Evt.READY, 0));
+      }
+      case Cmd.UPDATE_END: {
+        if (!this.atLeast(0, 6) || cmd.length < 5) return error(ErrorCode.BAD_COMMAND);
+        if (!this.updating || !this.update) return error(ErrorCode.BAD_STATE);
+        const image = this.update;
+        const got = this.received;
+        const overflow = this.overflow;
+        this.stopUpdate();
+        if (overflow) return error(ErrorCode.OVERFLOW);
+        if (got !== image.length) return error(ErrorCode.BAD_LENGTH);
+        if (crc32(image) !== v.getUint32(1, true)) return error(ErrorCode.CRC);
+        let parsed;
+        try {
+          parsed = parseFirmwareImage(image);
+        } catch {
+          return error(ErrorCode.BAD_FIRMWARE);
+        }
+        if (parsed.chip !== this.chip) return error(ErrorCode.BAD_FIRMWARE);
+        this.log(`I ota: firmware ${parsed.versionText} installed, restarting`);
+        notify(Uint8Array.of(Evt.UPDATED, 0));
+        setTimeout(() => this.restartInto(parsed.version), DELAYS[this.timing].restart);
+        return;
+      }
       default:
         return error(1);
     }
   }
 
+  private stopUpdate() {
+    this.updating = false;
+    this.update = null;
+  }
+
+  /** The restart after UPDATED: the new firmware boots, or crashes and the bootloader goes back. */
+  private restartInto(version: [number, number, number]) {
+    this.onRestart?.();
+    this.authorized = false;
+    this.nonce = null;
+    this.tempOverride = TEMP_UNKNOWN;
+    if (this.failNextBoot) {
+      this.failNextBoot = false;
+      this.rolledBack = true;
+      this.log('E boot: new firmware crashed, rolled back');
+      return;
+    }
+    this.firmware = version;
+    this.runningSlot = this.runningSlot === 0 ? 1 : 0;
+    this.rolledBack = false;
+    this.log(`I boot: running firmware ${version.join('.')} from app slot ${this.runningSlot}`);
+  }
+
   info(): Uint8Array {
-    const size = this.atLeast(0, 4) ? 22 : this.atLeast(0, 3) ? 21 : this.atLeast(0, 2) ? 18 : 17;
+    const size = this.atLeast(0, 6, 1)
+      ? 31
+      : this.atLeast(0, 6)
+        ? 30
+        : this.atLeast(0, 4)
+          ? 22
+          : this.atLeast(0, 3)
+            ? 21
+            : this.atLeast(0, 2)
+              ? 18
+              : 17;
     const b = new Uint8Array(size);
     const v = new DataView(b.buffer);
     b.set([Evt.INFO, 0, PROTOCOL_VERSION, ...this.firmware]);
@@ -272,6 +386,15 @@ export class FakeTag {
     if (size >= 18) v.setInt8(17, this.tempOverride);
     if (size >= 21) b.set(this.panelId, 18);
     if (size >= 22) b[21] = (this.ownerKey ? 1 : 0) | (this.authorized || !this.ownerKey ? 2 : 0);
+    if (size >= 30) {
+      // One picture, kept in slot 0 (the simulation doesn't model slots yet).
+      b[22] = SLOT_COUNT;
+      b[23] = this.stored ? 1 : 0;
+      b[24] = this.stored ? 0 : 0xff;
+      b[25] = (this.runningSlot ? UPDATE_RUNNING_SLOT1 : 0) | (this.rolledBack ? UPDATE_ROLLED_BACK : 0);
+      v.setUint32(26, FAKE_MAX_FIRMWARE, true);
+    }
+    if (size >= 31) b[30] = this.chip;
     return b;
   }
 }

@@ -5,7 +5,14 @@
 import { PALETTE, rgbToOklab, type PaletteEntry } from './palette';
 import type { RgbaImage } from './rgba';
 
-export type DitherMethod = 'floyd-steinberg' | 'atkinson' | 'none';
+export type DitherMethod =
+  | 'floyd-steinberg'
+  | 'atkinson'
+  | 'jarvis'
+  | 'stucki'
+  | 'sierra'
+  | 'burkes'
+  | 'none';
 export type ColorMetric = 'oklab' | 'rgb';
 /** Where the rounding error is carried to the next pixels. */
 export type ErrorSpace = 'srgb' | 'oklab';
@@ -17,11 +24,19 @@ export interface DitherOptions {
   serpentine?: boolean;
   /** 'oklab' carries error in perceptual lightness/colour: smoother tones, fewer stray dots. */
   errorSpace?: ErrorSpace;
+  /**
+   * Extra distance (Oklab, squared) charged for choosing white: 0 is off, ~0.002 uses
+   * white a little less in coloured areas, ~0.01 a lot less. Stops colours being
+   * diluted by white speckle at the price of slightly darker midtones.
+   */
+  whitePenalty?: number;
   palette?: readonly PaletteEntry[];
 }
 
 /** One tap of an error-diffusion kernel: dx, dy, weight. */
 type Kernel = readonly (readonly [number, number, number])[];
+
+const kernel = (taps: number[][], div: number): Kernel => taps.map(([dx, dy, w]) => [dx, dy, w / div]);
 
 const KERNELS: Record<Exclude<DitherMethod, 'none'>, Kernel> = {
   'floyd-steinberg': [
@@ -30,6 +45,20 @@ const KERNELS: Record<Exclude<DitherMethod, 'none'>, Kernel> = {
     [0, 1, 5 / 16],
     [1, 1, 1 / 16],
   ],
+  // Wider kernels: smoother and less noisy, softer fine detail.
+  jarvis: kernel(
+    [[1, 0, 7], [2, 0, 5], [-2, 1, 3], [-1, 1, 5], [0, 1, 7], [1, 1, 5], [2, 1, 3], [-2, 2, 1], [-1, 2, 3], [0, 2, 5], [1, 2, 3], [2, 2, 1]],
+    48,
+  ),
+  stucki: kernel(
+    [[1, 0, 8], [2, 0, 4], [-2, 1, 2], [-1, 1, 4], [0, 1, 8], [1, 1, 4], [2, 1, 2], [-2, 2, 1], [-1, 2, 2], [0, 2, 4], [1, 2, 2], [2, 2, 1]],
+    42,
+  ),
+  sierra: kernel(
+    [[1, 0, 5], [2, 0, 3], [-2, 1, 2], [-1, 1, 4], [0, 1, 5], [1, 1, 4], [2, 1, 2], [-1, 2, 2], [0, 2, 3], [1, 2, 2]],
+    32,
+  ),
+  burkes: kernel([[1, 0, 8], [2, 0, 4], [-2, 1, 2], [-1, 1, 4], [0, 1, 8], [1, 1, 4], [2, 1, 2]], 32),
   // Spreads only 6/8 of the error: crisper, good for graphics and text.
   atkinson: [
     [1, 0, 1 / 8],
@@ -48,10 +77,11 @@ export function dither(img: RgbaImage, opts: DitherOptions = {}): Uint8Array {
     metric = 'oklab',
     serpentine = true,
     errorSpace = 'srgb',
+    whitePenalty = 0,
     palette = PALETTE,
   } = opts;
   const { width: w, height: h, data } = img;
-  const nearest = makeNearest(palette, metric);
+  const nearest = makeNearest(palette, metric, metric === 'oklab' ? whitePenalty : 0);
   const out = new Uint8Array(w * h);
 
   if (method === 'none') {
@@ -59,7 +89,7 @@ export function dither(img: RgbaImage, opts: DitherOptions = {}): Uint8Array {
     return out;
   }
 
-  if (errorSpace === 'oklab') return ditherOklab(img, KERNELS[method], serpentine && method === 'floyd-steinberg', palette);
+  if (errorSpace === 'oklab') return ditherOklab(img, KERNELS[method], serpentine && method !== 'atkinson', palette, whitePenalty);
 
   const kernel = KERNELS[method];
   const buf = new Float32Array(w * h * 3);
@@ -71,7 +101,7 @@ export function dither(img: RgbaImage, opts: DitherOptions = {}): Uint8Array {
   const pr = palette.map((p) => p.rgb[0]);
   const pg = palette.map((p) => p.rgb[1]);
   const pb = palette.map((p) => p.rgb[2]);
-  const snake = serpentine && method === 'floyd-steinberg';
+  const snake = serpentine && method !== 'atkinson';
 
   for (let y = 0; y < h; y++) {
     const rtl = snake && (y & 1) === 1;
@@ -108,6 +138,7 @@ function ditherOklab(
   kernel: Kernel,
   snake: boolean,
   palette: readonly PaletteEntry[],
+  whitePenalty: number,
 ): Uint8Array {
   const { width: w, height: h, data } = img;
   const out = new Uint8Array(w * h);
@@ -137,7 +168,7 @@ function ditherOklab(
         const d0 = L - ref[c * 3];
         const d1 = A - ref[c * 3 + 1];
         const d2 = B - ref[c * 3 + 2];
-        const d = d0 * d0 + d1 * d1 + d2 * d2;
+        const d = d0 * d0 + d1 * d1 + d2 * d2 + (palette[c].name === 'white' ? whitePenalty : 0);
         if (d < bestD) {
           bestD = d;
           k = c;
@@ -165,7 +196,7 @@ function ditherOklab(
 const clampByte = (v: number) => (v <= 0 ? 0 : v >= 255 ? 255 : Math.round(v));
 
 /** Nearest palette index for an sRGB byte triple, memoised per color. */
-function makeNearest(palette: readonly PaletteEntry[], metric: ColorMetric) {
+function makeNearest(palette: readonly PaletteEntry[], metric: ColorMetric, whitePenalty = 0) {
   const n = palette.length;
   const ref = new Float32Array(n * 3);
   const tmp = new Float32Array(3);
@@ -203,7 +234,7 @@ function makeNearest(palette: readonly PaletteEntry[], metric: ColorMetric) {
       const d0 = c0 - ref[k * 3];
       const d1 = c1 - ref[k * 3 + 1];
       const d2 = c2 - ref[k * 3 + 2];
-      const d = d0 * d0 + d1 * d1 + d2 * d2;
+      const d = d0 * d0 + d1 * d1 + d2 * d2 + (palette[k].name === 'white' ? whitePenalty : 0);
       if (d < bestD) {
         bestD = d;
         best = k;

@@ -36,6 +36,10 @@ export const Cmd = {
   LOCK: 0x08, // 16-byte owner key: locks the badge to this phone (fw 0.4+)
   AUTH: 0x09, // no args: asks for a CHALLENGE; 16 bytes: the answer (fw 0.4+)
   UNLOCK: 0x0a, // forgets the owner key (fw 0.4+)
+  DELETE: 0x0c, // u8 slot: empties a picture slot, then INFO (fw 0.6+)
+  SLOT: 0x0d, // u8 slot: answers SLOT (fw 0.6+)
+  UPDATE_BEGIN: 0x0e, // u32 firmware size: erases the update slot, then READY (fw 0.6+)
+  UPDATE_END: 0x0f, // u32 crc32: checks and installs, UPDATED, then the badge restarts (fw 0.6+)
 } as const;
 export type CmdCode = (typeof Cmd)[keyof typeof Cmd];
 
@@ -45,6 +49,8 @@ export const Evt = {
   DISPLAYED: 0x83, // i8 panel temperature
   INFO: 0x84,
   CHALLENGE: 0x85, // 16-byte nonce to answer with AUTH (fw 0.4+)
+  UPDATED: 0x87, // firmware installed; the badge restarts into it about 0.5 s later (fw 0.6+)
+  SLOT: 0x88, // u8 slot, u8 used, u8 format, u32 length, u32 crc32 (fw 0.6+)
   ERROR: 0x8f, // status = error code, then u8 failing opcode
 } as const;
 export type EvtCode = (typeof Evt)[keyof typeof Evt];
@@ -61,6 +67,10 @@ export const ErrorCode = {
   BAD_FORMAT: 9,
   /** Locked to another phone, or a wrong AUTH answer (fw 0.4+). */
   LOCKED: 10,
+  /** No such picture slot (fw 0.6+). */
+  BAD_SLOT: 11,
+  /** The update isn't valid firmware for this badge (wrong chip or project, damaged) (fw 0.6+). */
+  BAD_FIRMWARE: 12,
 } as const;
 
 export const ERROR_NAMES: Record<number, string> = {
@@ -74,6 +84,8 @@ export const ERROR_NAMES: Record<number, string> = {
   8: 'no stored image',
   9: 'bad format',
   10: 'locked',
+  11: 'bad slot',
+  12: 'bad firmware',
 };
 
 export const COMMAND_NAMES: Record<number, string> = {
@@ -87,6 +99,10 @@ export const COMMAND_NAMES: Record<number, string> = {
   [Cmd.LOCK]: 'LOCK',
   [Cmd.AUTH]: 'AUTH',
   [Cmd.UNLOCK]: 'UNLOCK',
+  [Cmd.DELETE]: 'DELETE',
+  [Cmd.SLOT]: 'SLOT',
+  [Cmd.UPDATE_BEGIN]: 'UPDATE_BEGIN',
+  [Cmd.UPDATE_END]: 'UPDATE_END',
 };
 
 export const EVENT_NAMES: Record<number, string> = {
@@ -95,6 +111,8 @@ export const EVENT_NAMES: Record<number, string> = {
   [Evt.DISPLAYED]: 'DISPLAYED',
   [Evt.INFO]: 'INFO',
   [Evt.CHALLENGE]: 'CHALLENGE',
+  [Evt.UPDATED]: 'UPDATED',
+  [Evt.SLOT]: 'SLOT',
   [Evt.ERROR]: 'ERROR',
 };
 
@@ -116,3 +134,14 @@ export const TEMP_MAX = 60;
 
 /** Owner key, CHALLENGE nonce and AUTH answer are all this long. */
 export const LOCK_KEY_BYTES = 16;
+
+/** INFO update flags (fw 0.6+). */
+export const UPDATE_RUNNING_SLOT1 = 0x01;
+export const UPDATE_ROLLED_BACK = 0x02;
+
+/** Chip ids, as in byte 12 of a firmware image and INFO byte 30 (fw 0.6.1+). */
+export const Chip = {
+  ESP32C3: 5,
+  ESP32C6: 13,
+} as const;
+export const CHIP_NAMES: Record<number, string> = { 5: 'ESP32-C3', 13: 'ESP32-C6' };

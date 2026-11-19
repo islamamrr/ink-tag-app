@@ -14,8 +14,9 @@ import {
   type Orientation,
   type Rotation,
 } from './frame';
+import { SCREEN_PALETTE } from './palette';
 import type { RgbaImage } from './rgba';
-import { applyLook, lookDither, type Look } from './look';
+import { applyLook, lookDither, sharpen, type Look } from './look';
 import { applyTone, type Tone } from './tone';
 
 export interface ConvertOptions {
@@ -24,14 +25,18 @@ export interface ConvertOptions {
   tone?: Partial<Tone>;
   /** How tones are mapped onto the panel before dithering. Default 'today'. */
   look?: Look;
+  /** Unsharp mask on lightness before dithering, 0 (off) to 1. */
+  sharpen?: number;
   dither?: DitherOptions;
 }
 
 export interface Converted {
   frame: Uint8Array;
   crc32: number;
-  /** Exactly what the badge will draw, decoded back from the frame. */
+  /** Exactly what the badge will draw, decoded back from the frame, in the measured panel colours. */
   preview: RgbaImage;
+  /** The same picture in the app's bright screen inks (SCREEN_PALETTE): what the UI shows. */
+  display: RgbaImage;
   shares: ReturnType<typeof colorShares>;
   /** Milliseconds per step, for tuning on slow phones. */
   timings: { tone: number; dither: number; pack: number; preview: number };
@@ -59,20 +64,22 @@ export function convertFitted(img: RgbaImage, opts: ConvertOptions = {}): Conver
     return Math.round(d);
   };
   const look = opts.look ?? 'today';
-  const toned = applyLook(opts.tone ? applyTone(img, opts.tone) : img, look);
+  const toned = applyLook(sharpen(opts.tone ? applyTone(img, opts.tone) : img, opts.sharpen ?? 0), look);
   const tTone = lap();
-  const indices = dither(toned, look === 'today' ? opts.dither : lookDither(look, opts.dither));
+  const indices = dither(toned, lookDither(look, opts.dither));
   const tDither = lap();
   const frame = packFrame(indices, orientation, rotation);
   const crc = crc32(frame);
   const tPack = lap();
   const preview = frameToRgba(frame, orientation, rotation);
+  const display = frameToRgba(frame, orientation, rotation, SCREEN_PALETTE);
   const tPreview = lap();
   if (frame.length !== FRAME_BYTES) throw new Error('internal: bad frame size');
   return {
     frame,
     crc32: crc,
     preview,
+    display,
     shares: colorShares(indices),
     timings: { tone: tTone, dither: tDither, pack: tPack, preview: tPreview },
   };

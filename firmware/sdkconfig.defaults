@@ -3,6 +3,10 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# Wireless updates: a new app starts as "pending"; if it resets before marking
+# itself good, the bootloader goes back to the previous app.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # Bluetooth: NimBLE host, peripheral only
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y

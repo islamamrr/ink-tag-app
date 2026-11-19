@@ -18,6 +18,7 @@ import {
   PANEL_WIDTH,
   PORTRAIT_HEIGHT,
   PORTRAIT_WIDTH,
+  SCREEN_PALETTE,
 } from '../src/core';
 import { golden, goldenMeta, rgbToRgba } from './helpers';
 
@@ -202,4 +203,52 @@ test('compare screen builds one full frame from a 264 x 396 picture', () => {
   expect(c.frame.length).toBe(FRAME_BYTES);
   expect(c.preview.width).toBe(W);
   expect(() => convertCompare({ ...small, width: 10 })).toThrow();
+});
+
+describe('dither options', () => {
+  const ramp = () => {
+    const img = { width: 64, height: 64, data: new Uint8Array(64 * 64 * 4) };
+    for (let i = 0; i < 64 * 64; i++) img.data.set([100 + (i % 64), 90 + (i % 64), 140, 255], i * 4);
+    return img;
+  };
+  test.each(['jarvis', 'stucki', 'sierra', 'burkes'] as const)('%s runs and uses several colours', (method) => {
+    const out = dither(ramp(), { method });
+    expect(new Set(out).size).toBeGreaterThan(1);
+    expect(out.length).toBe(64 * 64);
+  });
+  test('whitePenalty uses less white', () => {
+    const count = (o: number[]) => o.filter((v) => v === 1).length;
+    const base = count(Array.from(dither(ramp(), { method: 'floyd-steinberg' })));
+    const pen = count(Array.from(dither(ramp(), { method: 'floyd-steinberg', whitePenalty: 0.01 })));
+    expect(pen).toBeLessThan(base);
+  });
+  test('sharpen 0 leaves the frame alone; more changes it', () => {
+    const img = ramp();
+    for (let i = 0; i < 64 * 64; i += 3) img.data[i * 4] = 250;
+    const a = convertFitted(photoFull(), {}).crc32;
+    expect(convertFitted(photoFull(), { sharpen: 0 }).crc32).toBe(a);
+    expect(convertFitted(photoFull(), { sharpen: 1 }).crc32).not.toBe(a);
+  });
+});
+
+function photoFull() {
+  const img = { width: W, height: H, data: new Uint8Array(W * H * 4) };
+  for (let i = 0; i < W * H; i++) {
+    const x = i % W;
+    const y = Math.floor(i / W);
+    const v = (x + y) % 40 < 20 ? 60 : 200;
+    img.data.set([v, 120, 255 - v, 255], i * 4);
+  }
+  return img;
+}
+
+test('the app shows pictures in the screen inks, and the frame is unchanged by that', () => {
+  const src = rgbToRgba(golden('photo_fitted_rgb'), W, H);
+  const r = convertFitted(src);
+  expect(Buffer.from(r.display.data).equals(Buffer.from(frameToRgba(r.frame, 'portrait', undefined, SCREEN_PALETTE).data))).toBe(true);
+  // Every display pixel is one of the six screen inks, never a measured panel colour.
+  const screen = new Set(SCREEN_PALETTE.map((p) => p.rgb.join(',')));
+  for (let i = 0; i < r.display.data.length; i += 4 * 97) expect(screen.has(`${r.display.data[i]},${r.display.data[i + 1]},${r.display.data[i + 2]}`)).toBe(true);
+  // Same codes as the measured palette, so the decoded picture means the same thing.
+  expect(SCREEN_PALETTE.map((p) => [p.name, p.code])).toEqual(PALETTE.map((p) => [p.name, p.code]));
 });

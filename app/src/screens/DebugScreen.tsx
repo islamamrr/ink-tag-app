@@ -26,7 +26,6 @@ import {
   type FitMode,
   frameToRgba,
   LOOKS,
-  type Look,
   QUAD_HEIGHT,
   QUAD_WIDTH,
   panelAnswering,
@@ -52,6 +51,20 @@ import { type Picture, pickPhoto, renderFitted, toSkImage } from '../services/pi
 import { loadPrefs, type Prefs, savePrefs } from '../services/prefs';
 import { bluetoothAvailable, watchBluetooth } from '../services/radio';
 import { Banner, Bar, Btn, Card, KV, Row, s } from './devUi';
+
+const DITHERS: readonly DitherMethod[] = [
+  'floyd-steinberg',
+  'atkinson',
+  'jarvis',
+  'stucki',
+  'sierra',
+  'burkes',
+  'none',
+];
+const WHITE_STEPS = [0, 0.002, 0.005, 0.01];
+const SHARPEN_STEPS = [0, 0.5, 1];
+/** The entry after `cur` in `list`, wrapping round. */
+const next = <T,>(list: readonly T[], cur: T): T => list[(list.indexOf(cur) + 1) % list.length];
 
 const PREVIEW_W = 150;
 const PREVIEW_H = 225;
@@ -326,10 +339,10 @@ export default function DebugScreen() {
   const reconvert = (
     p: Picture | null,
     f: FitMode,
-    m: DitherMethod,
-    look: Look = prefs.look,
+    over: Partial<Prefs> = {},
   ): Converted | null => {
     if (!p) return null;
+    const o = { ...prefs, ...over };
     if (compareMode.current) {
       const t = Date.now();
       const c = convertCompare(renderFitted(p, QUAD_WIDTH, QUAD_HEIGHT, f));
@@ -342,11 +355,23 @@ export default function DebugScreen() {
     const t0 = Date.now();
     const fitted = renderFitted(p, width, height, f);
     const tFit = Date.now() - t0;
-    const c = convertFitted(fitted, { look, dither: { method: m } });
+    const c = convertFitted(fitted, {
+      look: o.look,
+      sharpen: o.sharpen,
+      dither: {
+        method: o.dither,
+        whitePenalty: o.whitePenalty,
+        ...(o.errorSpace === 'auto' ? {} : { errorSpace: o.errorSpace }),
+      },
+    });
     setConverted(c);
     setPreview(toSkImage(c.preview));
     const total = tFit + Object.values(c.timings).reduce((a, b) => a + b, 0);
-    add('app', `converted in ${total} ms (fit ${tFit}, ${JSON.stringify(c.timings)})`);
+    add(
+      'app',
+      `converted in ${total} ms: look ${o.look}, ${o.dither}, error ${o.errorSpace}, ` +
+        `white +${o.whitePenalty}, sharpen ${o.sharpen} (fit ${tFit}, ${JSON.stringify(c.timings)})`,
+    );
     return c;
   };
 
@@ -363,7 +388,7 @@ export default function DebugScreen() {
     if (!p) return null;
     setPicture(p);
     add('app', `photo ${p.width}×${p.height}`);
-    return reconvert(p, prefs.fit, prefs.dither);
+    return reconvert(p, prefs.fit);
   };
 
   const doPick = () =>
@@ -389,18 +414,14 @@ export default function DebugScreen() {
 
   const changeFit = (f: FitMode) => {
     setPrefs({ fit: f });
-    reconvert(picture, f, prefs.dither);
+    reconvert(picture, f);
   };
 
-  const changeLook = (l: Look) => {
-    setPrefs({ look: l });
-    setCompare(false);
-    reconvert(picture, prefs.fit, prefs.dither, l);
-  };
-
-  const changeMethod = (m: DitherMethod) => {
-    setPrefs({ dither: m });
-    reconvert(picture, prefs.fit, m);
+  /** Changes one setting and redraws the preview from the loaded photo. */
+  const change = (patch: Partial<Prefs>) => {
+    setPrefs(patch);
+    if ('look' in patch) setCompare(false);
+    reconvert(picture, prefs.fit, patch);
   };
 
   // ---------------------------------------------------------------- progress
@@ -702,7 +723,7 @@ export default function DebugScreen() {
           <Btn
             label={comparing ? 'Look: A–D compare' : `Look: ${prefs.look}`}
             kind="quiet"
-            onPress={() => changeLook(LOOKS[(LOOKS.indexOf(prefs.look) + 1) % LOOKS.length])}
+            onPress={() => change({ look: next(LOOKS, prefs.look) })}
             disabled={!!busy}
           />
           <Btn
@@ -714,15 +735,27 @@ export default function DebugScreen() {
           <Btn
             label={`Dither: ${prefs.dither}`}
             kind="quiet"
-            onPress={() =>
-              changeMethod(
-                prefs.dither === 'floyd-steinberg'
-                  ? 'atkinson'
-                  : prefs.dither === 'atkinson'
-                    ? 'none'
-                    : 'floyd-steinberg',
-              )
-            }
+            onPress={() => change({ dither: next(DITHERS, prefs.dither) })}
+            disabled={!!busy}
+          />
+        </Row>
+        <Row>
+          <Btn
+            label={`Error in: ${prefs.errorSpace}`}
+            kind="quiet"
+            onPress={() => change({ errorSpace: next(['auto', 'srgb', 'oklab'] as const, prefs.errorSpace) })}
+            disabled={!!busy}
+          />
+          <Btn
+            label={`Less white: ${prefs.whitePenalty || 'off'}`}
+            kind="quiet"
+            onPress={() => change({ whitePenalty: next(WHITE_STEPS, prefs.whitePenalty) })}
+            disabled={!!busy}
+          />
+          <Btn
+            label={`Sharpen: ${prefs.sharpen || 'off'}`}
+            kind="quiet"
+            onPress={() => change({ sharpen: next(SHARPEN_STEPS, prefs.sharpen) })}
             disabled={!!busy}
           />
         </Row>

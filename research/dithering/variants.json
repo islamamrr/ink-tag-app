@@ -1,0 +1,8 @@
+[["A. Today",{}],
+ ["B. Today + colour boost",{"sat":1.4,"contrast":1.15}],
+ ["C. Fit to panel range",{"range":1,"sat":1.5}],
+ ["D. C, Jarvis kernel",{"range":1,"sat":1.5,"kernel":"jjn"}],
+ ["E. C, error in Oklab",{"range":1,"sat":1.5,"space":"oklab"}],
+ ["F. E, Jarvis kernel",{"range":1,"sat":1.5,"space":"oklab","kernel":"jjn"}],
+ ["G. E, sat 1.3 + S-curve",{"range":1,"sat":1.3,"scurve":0.6,"space":"oklab"}],
+ ["H. E, 85% error",{"range":1,"sat":1.5,"space":"oklab","err":0.85}]]

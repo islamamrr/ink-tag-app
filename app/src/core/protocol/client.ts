@@ -19,6 +19,8 @@ import {
   encodeShow,
   encodeTemp,
   encodeUnlock,
+  encodeUpdateBegin,
+  encodeUpdateEnd,
   parseInfo,
   type TagInfo,
 } from './codec';
@@ -51,6 +53,8 @@ export interface Timeouts {
   ready: number;
   received: number;
   displayed: number;
+  /** Erasing the update slot (READY) and checking the image (UPDATED). Default 60 s each. */
+  update?: number;
 }
 
 /** Milliseconds. DISPLAYED can take tens of seconds, longer in the cold. */
@@ -73,6 +77,16 @@ export interface UploadOptions {
   ackEvery?: number;
   /** Write with response on every chunk. Used automatically to retry a CRC mismatch. */
   safe?: boolean;
+}
+
+/** Where a firmware update is. After 'restarting' the badge drops the connection. */
+export type UpdateStage = 'erasing' | 'sending' | 'installing' | 'restarting';
+
+export interface FirmwareUpdateOptions {
+  onProgress?: (sent: number, total: number) => void;
+  onStage?: (stage: UpdateStage, attempt: number) => void;
+  signal?: AbortSignal;
+  ackEvery?: number;
 }
 
 export type DisplayOutcome =
@@ -363,35 +377,98 @@ export class TagClient {
     onBegan();
     onStage?.('sending', attempt);
 
+    const stats = await this.streamData(frame, safe, signal, onProgress, ackEvery);
+
+    onStage?.('verifying', attempt);
+    await this.send(encodeEnd(crc32(frame)));
+    await this.expect(Evt.RECEIVED, this.timeouts.received, signal);
+    return stats;
+  }
+
+  /** Writes `data` to the Data characteristic in MTU-sized chunks. */
+  private async streamData(
+    data: Uint8Array,
+    safe: boolean,
+    signal: AbortSignal | undefined,
+    onProgress: ((sent: number, total: number) => void) | undefined,
+    ackEvery: number,
+  ) {
     const chunk = Math.max(20, Math.min(MAX_ATTR_LEN, this.link.mtu - 3));
-    this.log(
-      'info',
-      `sending ${frame.length} bytes in ${chunk}-byte chunks (MTU ${this.link.mtu})`,
-    );
+    this.log('info', `sending ${data.length} bytes in ${chunk}-byte chunks (MTU ${this.link.mtu})`);
     const t0 = Date.now();
-    for (let i = 0, off = 0; off < frame.length; i++, off += chunk) {
+    for (let i = 0, off = 0; off < data.length; i++, off += chunk) {
       if (signal?.aborted) {
         await this.abort().catch(() => {});
         throw new CancelledError();
       }
       if (this.disconnected) throw new DisconnectedError();
-      await this.link.writeData(
-        frame.subarray(off, off + chunk),
-        safe || i % ackEvery === ackEvery - 1,
-      );
-      onProgress?.(Math.min(off + chunk, frame.length), frame.length);
+      await this.link.writeData(data.subarray(off, off + chunk), safe || i % ackEvery === ackEvery - 1);
+      onProgress?.(Math.min(off + chunk, data.length), data.length);
     }
     const sendSeconds = Math.max((Date.now() - t0) / 1000, 1e-3);
-    const bytesPerSecond = frame.length / sendSeconds;
-    this.log(
-      'info',
-      `sent in ${sendSeconds.toFixed(1)} s (${(bytesPerSecond / 1024).toFixed(1)} KiB/s)`,
-    );
-
-    onStage?.('verifying', attempt);
-    await this.send(encodeEnd(crc32(frame)));
-    await this.expect(Evt.RECEIVED, this.timeouts.received, signal);
+    const bytesPerSecond = data.length / sendSeconds;
+    this.log('info', `sent in ${sendSeconds.toFixed(1)} s (${(bytesPerSecond / 1024).toFixed(1)} KiB/s)`);
     return { sendSeconds, bytesPerSecond, chunkSize: chunk };
+  }
+
+  // ------------------------------------------------------------ firmware update (fw 0.6+)
+
+  /**
+   * Installs a firmware app image. Resolves when the badge has checked it and
+   * answered UPDATED; it restarts into the new firmware half a second later,
+   * so the connection drops. A failure before that leaves the badge running
+   * its old firmware. Needs an authorized connection on a locked badge.
+   */
+  updateFirmware(image: Uint8Array, opts: FirmwareUpdateOptions = {}): Promise<void> {
+    return this.exclusive(async () => {
+      let safe = false;
+      let began = false;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await this.updateOnce(image, safe, opts, attempt, () => (began = true));
+          return;
+        } catch (e) {
+          const lost =
+            e instanceof TagError && (e.code === ErrorCode.CRC || e.code === ErrorCode.BAD_LENGTH);
+          const refused =
+            !(e instanceof TagError) &&
+            !(e instanceof CancelledError) &&
+            !(e instanceof DisconnectedError) &&
+            !(e instanceof TimeoutError) &&
+            this.connected;
+          if ((lost || refused) && !safe && opts.signal?.aborted !== true) {
+            this.log('error', `${e instanceof Error ? e.message : String(e)}, retrying with a response on every write`);
+            safe = true;
+            continue;
+          }
+          // The badge drops a half-written update on ABORT (or on disconnect).
+          if (began && this.connected && !(e instanceof TagError)) await this.abort().catch(() => {});
+          this.log('error', `firmware update failed: ${e instanceof Error ? e.message : String(e)}`);
+          throw e;
+        }
+      }
+    });
+  }
+
+  private async updateOnce(
+    image: Uint8Array,
+    safe: boolean,
+    opts: FirmwareUpdateOptions,
+    attempt: number,
+    onBegan: () => void,
+  ) {
+    const { signal, onProgress, onStage, ackEvery = 32 } = opts;
+    const wait = this.timeouts.update ?? 60_000;
+    onStage?.('erasing', attempt);
+    await this.send(encodeUpdateBegin(image.length));
+    await this.expect(Evt.READY, wait, signal);
+    onBegan();
+    onStage?.('sending', attempt);
+    await this.streamData(image, safe, signal, onProgress, ackEvery);
+    onStage?.('installing', attempt);
+    await this.send(encodeUpdateEnd(crc32(image)));
+    await this.expect(Evt.UPDATED, wait, signal);
+    onStage?.('restarting', attempt);
   }
 
   /** BEGIN; on "bad state" (a stale upload on the badge) ABORT and try once more. */

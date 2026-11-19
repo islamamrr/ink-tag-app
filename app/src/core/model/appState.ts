@@ -14,6 +14,8 @@ export interface AppPrefs {
   defaultStyle: PictureStyle;
   /** The welcome screen has been seen (or a badge added). */
   welcomed: boolean;
+  /** Shows Settings › For testing. Turned on by tapping the version on About seven times. */
+  testing?: boolean;
 }
 
 export interface Draft {

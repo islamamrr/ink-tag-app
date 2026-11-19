@@ -102,6 +102,8 @@ export function userMessage(e: unknown): string {
         [ErrorCode.BAD_FORMAT]: "The badge doesn't understand this picture format.",
         [ErrorCode.LOCKED]:
           'This badge is locked to another phone. To unlock it, hold its button for 10 seconds while it is on.',
+        [ErrorCode.BAD_SLOT]: "The badge doesn't have that picture slot.",
+        [ErrorCode.BAD_FIRMWARE]: "The badge refused that firmware: it isn't made for this badge, or it was damaged. Nothing changed.",
       }[err.code] ?? `The badge reported ${err.message}.`;
   } else if (err instanceof TimeoutError) {
     msg = 'The badge stopped answering. Move closer and try again.';
